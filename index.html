@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ar" dir="ltr" data-theme="dark">
 <head>
@@ -5,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>BadiGold - XAUUSD Terminal</title>
   <style>
+    /* ====== Brand & accent colors (shared between themes) ====== */
     :root {
       --primary:        #4c8dff;
       --primary-hover:  #3b78e8;
@@ -21,16 +23,48 @@
       --green:          #20c997;
       --red:            #ff5d6c;
       --amber:          #f59e0b;
+    }
 
-      --bg:             #0a0d14;
-      --bg-soft:        #0f131c;
-      --card:           #131928;
-      --card-elev:      #181f30;
-      --border:         #232c40;
-      --border-soft:    #1a2232;
-      --text:           #e8ecf4;
-      --text-muted:     #a3acc0;
-      --text-faint:     #6d7892;
+    /* ====== Dark theme (default) — pure black ====== */
+    :root, [data-theme="dark"] {
+      --bg:             #000000;
+      --bg-soft:        #0a0a0a;
+      --card:           #0f0f0f;
+      --card-elev:      #161616;
+      --border:         #1f1f1f;
+      --border-soft:    #161616;
+      --text:           #f5f5f7;
+      --text-muted:     #a1a1a1;
+      --text-faint:     #6b6b6b;
+    }
+
+    /* ====== Light theme — pure white ====== */
+    [data-theme="light"] {
+      --primary:        #2f58d8;
+      --primary-hover:  #2448b8;
+      --primary-soft:   rgba(47, 88, 216, 0.10);
+      --accent:         #12b6ec;
+      --brand-gradient: linear-gradient(135deg, #12b6ec 0%, #2f58d8 100%);
+      --text-gradient:  linear-gradient(90deg, #12b6ec 0%, #2f58d8 100%);
+
+      --gold:           #C89000;
+      --gold-warm:      #B26A1A;
+      --gold-soft:      rgba(200, 144, 0, 0.10);
+      --gold-gradient:  linear-gradient(135deg, #C89000 0%, #B26A1A 100%);
+
+      --green:          #14a06a;
+      --red:            #e23b4c;
+      --amber:          #d97706;
+
+      --bg:             #ffffff;
+      --bg-soft:        #f4f4f5;
+      --card:           #ffffff;
+      --card-elev:      #fafafa;
+      --border:         #e4e4e7;
+      --border-soft:    #f0f0f1;
+      --text:           #0a0a0a;
+      --text-muted:     #525252;
+      --text-faint:     #8a8a8a;
     }
 
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -67,7 +101,7 @@
       position: fixed; inset: 0; z-index: 300;
       display: flex; flex-direction: column;
       align-items: center; justify-content: center;
-      background: radial-gradient(120% 120% at 50% 45%, #0e1522 0%, #090c13 60%, #05070b 100%);
+      background: #000000;
       transition: opacity 0.6s ease, visibility 0.6s ease;
     }
     .splash.hide { opacity: 0; visibility: hidden; pointer-events: none; }
@@ -103,6 +137,12 @@
     .header-name .c { background: var(--text-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
     .header-name .g { background: var(--gold-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
     .header-actions { display: flex; gap: 6px; }
+
+    /* Theme toggle: show sun in dark mode (to switch to light), moon in light mode */
+    [data-theme="dark"]  .icon-sun  { display: block; }
+    [data-theme="dark"]  .icon-moon { display: none; }
+    [data-theme="light"] .icon-sun  { display: none; }
+    [data-theme="light"] .icon-moon { display: block; }
     .icon-btn {
       position: relative; width: 32px; height: 32px;
       border-radius: 9px; background: var(--bg-soft);
@@ -153,8 +193,8 @@
       flex-shrink: 0;
       display: flex; align-items: center; justify-content: space-between;
       padding: 8px 12px;
-      background: #131722;
-      border-bottom: 1px solid rgba(35, 44, 64, 0.5);
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
       gap: 8px;
       min-height: 44px;
     }
@@ -185,19 +225,28 @@
     .tf-btn.active { background: var(--primary-soft); border-color: rgba(76,141,255,0.5); color: var(--primary); }
 
     .chart-container {
-      flex: 1 1 auto; position: relative; background: #131722;
+      flex: 1 1 auto; position: relative; background: #000000;
       min-height: 0; overflow: hidden;
     }
     .chart-container canvas {
       display: block; position: absolute; top: 0; left: 0;
       width: 100% !important; height: 100% !important;
     }
+    /* The library paints its own dark-blue background (#0e1015).
+       In dark theme we leave the chart's native dark background (it's near-black
+       and the candle colors look best on it). In light theme we invert. */
+    [data-theme="light"] .chart-container canvas {
+      filter: invert(1) hue-rotate(180deg) brightness(0.97);
+    }
+    [data-theme="light"] .chart-container {
+      background: #ffffff;
+    }
     .chart-loading {
       position: absolute; inset: 0;
       display: flex; flex-direction: column;
       align-items: center; justify-content: center;
       gap: 10px; color: var(--text-faint); font-size: 12px;
-      background: #131722; z-index: 5;
+      background: var(--card); z-index: 5;
     }
     .chart-loading .spinner {
       width: 28px; height: 28px;
@@ -425,7 +474,7 @@
       padding: 18px;
       margin-bottom: 16px;
       overflow: hidden;
-      background: linear-gradient(135deg, #161c2c 0%, #131928 60%, #0f1320 100%);
+      background: linear-gradient(135deg, var(--card-elev) 0%, var(--card) 60%, var(--bg-soft) 100%);
       border: 1px solid var(--border);
       box-shadow: 0 4px 12px rgba(0,0,0,0.25);
     }
@@ -563,7 +612,7 @@
     /* ====== Bottom navigation (4 tabs) ====== */
     .bottom-nav {
       position: absolute; bottom: 0; left: 0; right: 0;
-      background: rgba(10,13,20,0.94);
+      background: var(--bg);
       backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
       border-top: 1px solid var(--border);
       display: flex; padding: 6px 6px 10px; z-index: 100;
@@ -697,6 +746,10 @@
       <span class="header-name">Badi<span class="c">Charts</span></span>
     </div>
     <div class="header-actions">
+      <button class="icon-btn" id="themeToggle" title="Toggle theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
       <button class="icon-btn" title="Notifications">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
         <span class="badge"></span>
@@ -1058,7 +1111,7 @@
 </div>
 
 <!-- ====== BadiCharts library (BADI-CHARTS-V2) ====== -->
-<script src="https://cdn.jsdelivr.net/gh/salahbadi19/BADI-CHARTS-V2@v2.3.0/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/salahbadi19/BADI-CHARTS-V2@v2.4.0/chart.js"></script>
 
 <script>
   /* ============================================================
@@ -1075,6 +1128,29 @@
     }
     setTimeout(hide, 2600);
     splash.addEventListener('click', hide);
+  })();
+
+  /* ============================================================
+     Theme toggle — black (dark) <-> white (light)
+     ============================================================ */
+  (function () {
+    const html = document.documentElement;
+    const toggle = document.getElementById('themeToggle');
+    if (!toggle) return;
+    // Persist in localStorage (default dark)
+    try {
+      const saved = localStorage.getItem('bg-theme');
+      if (saved === 'light' || saved === 'dark') html.setAttribute('data-theme', saved);
+    } catch (e) {}
+    toggle.addEventListener('click', () => {
+      const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      html.setAttribute('data-theme', next);
+      try { localStorage.setItem('bg-theme', next); } catch (e) {}
+      // Force chart to resize/redraw after theme switch
+      setTimeout(() => {
+        if (typeof resizeChart === 'function') resizeChart();
+      }, 80);
+    });
   })();
 
   /* ============================================================
@@ -1223,6 +1299,40 @@
         timeframe: { label: currentTF.label, ms: currentTF.ms },
         indicators: []
       });
+
+      // Force the chart's background AND axis area to pure black instead of the
+      // library's native dark-blue tones. We override the prototype's fillStyle
+      // setter so every canvas context gets the rewrite. Only exact library
+      // background/axis colors are rewritten; candle colors are untouched.
+      (function patchBackground() {
+        const proto = CanvasRenderingContext2D.prototype;
+        const desc = Object.getOwnPropertyDescriptor(proto, 'fillStyle');
+        const origSet = desc ? desc.set : null;
+        const origGet = desc ? desc.get : null;
+        if (origSet && origGet) {
+          Object.defineProperty(proto, 'fillStyle', {
+            get: origGet,
+            set: function (v) {
+              const s = String(v).toLowerCase().trim();
+              // Chart background + axis panel background → pure black
+              if (s === '#0e1015' || s === '#0e1115' || s === '#0d0f14' || s === '#0f1116' ||
+                  s === '#0c0e13' || s === '#0b0d12' || s === '#0a0c11' ||
+                  s === '#131722' || s === '#161a24' || s === '#0f131c' || s === '#11151f') {
+                origSet.call(this, '#000000');
+              }
+              // Grid lines + axis borders → neutral dark gray (not blue)
+              else if (s === '#1c2030' || s === '#1e2230' || s === '#1a1e2a' ||
+                       s === '#2a2e39' || s === '#232730' || s === '#262a35' || s === '#222632') {
+                origSet.call(this, '#1a1a1a');
+              }
+              else {
+                origSet.call(this, v);
+              }
+            },
+            configurable: true
+          });
+        }
+      })();
 
       // Start the chart
       window.bgChart.start();
