@@ -708,7 +708,7 @@
       padding-bottom: 7px;
       transition: transform 0.15s;
     }
-    .analysis-fab svg { width: 20px; height: 20px; flex-shrink: 0; }
+    .analysis-fab svg { width: 25px; height: 25px; flex-shrink: 0; }
     .analysis-fab:hover { transform: translateX(-50%) translateY(-1px); }
     .analysis-fab:active { transform: translateX(-50%) translateY(0); }
     .analysis-fab.visible { display: flex; }
@@ -1369,13 +1369,13 @@
 
   /* ============================================================
      Swipe navigation between pages
-     - Swipe LEFT : Settings -> Plans -> History -> Chart
-     - Swipe RIGHT: only History -> Settings (everything else is blocked)
+     - Swipe RIGHT: Settings -> Plans -> History -> Chart
+     - Swipe LEFT : only History -> Settings (everything else is blocked)
      Edit SWIPE_LEFT / SWIPE_RIGHT to change the allowed moves.
      ============================================================ */
   (function () {
-    const SWIPE_LEFT  = { account: 'plans', plans: 'signals', signals: 'chart' };
-    const SWIPE_RIGHT = { signals: 'account' };
+    const SWIPE_RIGHT = { account: 'plans', plans: 'signals', signals: 'chart' };
+    const SWIPE_LEFT  = { signals: 'account' };
     const MIN_DX = 60;      // minimum horizontal distance (px)
     const RATIO  = 1.5;     // horizontal must dominate vertical
 
