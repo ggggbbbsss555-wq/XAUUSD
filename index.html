@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ar" dir="ltr" data-theme="dark">
 <head>
@@ -802,12 +803,7 @@
       cursor: pointer; font-family: inherit;
     }
 
-    /* ====== Chart analysis (overlay, lock, banner) ====== */
-    .chart-container canvas.analysis-overlay {
-      pointer-events: none;
-      filter: none !important;      /* never inverted in light theme */
-      z-index: 4;
-    }
+    /* ====== Chart analysis (lock, banner) ====== */
     .analysis-lock {
       position: absolute; inset: 0; z-index: 6;
       display: none; touch-action: none; cursor: not-allowed;
@@ -821,7 +817,7 @@
       padding: 10px 16px; border-radius: 100px;
       background: var(--card-elev); border: 1px solid var(--border);
       color: var(--text); font-size: 12px; font-weight: 700;
-      direction: rtl; text-align: center;
+      direction: ltr; text-align: center;
       opacity: 0; pointer-events: none;
       transition: opacity 0.3s ease, transform 0.3s ease;
     }
@@ -1541,118 +1537,210 @@
   })();
 
   /* ============================================================
-     Chart analysis — "human analyst" style
-     1) bottom banner: don't touch the chart
-     2) zoom out -> zoom in on a swing high/low (scrolling back & forth)
-     3) slowly draw a circle + dot on it, then move to the next one
-     Marks stay on the chart (anchored to candle index + price).
+     Chart analysis — "human analyst" style (native library drawing)
+     1) banner: "Do not touch the chart" (auto-hides after 6s)
+     2) zoom out slightly -> zoom in on each S/R swing -> draw circle
+     3) detect FVG (Fair Value Gap) zones -> draw rectangles
+     4) return to the first (oldest) candles
+     All drawings are native library drawings (no overlay, no glow).
      ============================================================ */
   (function () {
-    const LEVELS_PER_SIDE = 2;     // 2 resistances + 2 supports = 4 levels (set 4 for 8 levels)
+    const LEVELS_PER_SIDE = 2;     // 2 resistances + 2 supports = 4 levels
     const PIVOT_K         = 6;     // bars on each side that must be lower/higher
     const ZOOM_IN_SPACING = 26;    // barSpacing when focusing on a level
-    const T = { out: 850, in: 1300, circle: 1800, dot: 260, label: 320, hold: 450 };
+    const ZOOM_OUT_FACTOR = 0.6;   // slight zoom out (60% of current spacing)
+    const BANNER_MS       = 6000;  // banner auto-hide after 6 seconds
+    const T = { out: 700, in: 1100, circle: 1600, dot: 240, label: 300, hold: 400, fvg: 1100, fvgHold: 350 };
     const COLORS = { res: '#ff5d6c', sup: '#20c997' };
-    const NAMES  = { res: '\u0645\u0642\u0627\u0648\u0645\u0629', sup: '\u062f\u0639\u0645' };
+    const NAMES  = { res: 'Resistance', sup: 'Support' };
+
+    // FVG config
+    const FVG_MAX              = 4;    // max number of FVG zones to draw
+    const FVG_MIN_DISPLACEMENT = 1.2;  // min body of displacement candle (candle 2)
+    const FVG_MIN_GAP          = 0.25; // min gap size in price units
 
     const container = document.getElementById('chartContainer');
     if (!container) return;
-
-    // overlay canvas (circles / dots / labels)
-    const ov = document.createElement('canvas');
-    ov.className = 'analysis-overlay';
-    container.appendChild(ov);
-    const octx = ov.getContext('2d');
 
     // lock layer (blocks touching the chart while analysing)
     const lock = document.createElement('div');
     lock.className = 'analysis-lock';
     container.appendChild(lock);
 
-    // bottom banner
+    // bottom banner (English text, auto-hides after 6s)
     const banner = document.createElement('div');
     banner.className = 'analysis-banner';
-    banner.innerHTML = '<span class="ico">\u26A0</span><span>\u0644\u0627 \u062A\u0644\u0645\u0633 \u0627\u0644\u0634\u0627\u0631\u062A \u2014 \u0627\u0646\u062A\u0638\u0631 \u062D\u062A\u0649 \u064A\u0646\u062A\u0647\u064A \u0627\u0644\u062A\u062D\u0644\u064A\u0644</span>';
+    banner.innerHTML = '<span class="ico">\u26A0</span><span>Do not touch the chart \u2014 analysis in progress</span>';
     document.querySelector('.phone').appendChild(banner);
 
-    let marks = [];
     let running = false;
     let token = 0;
-    let rafId = null;
+    let toolRegistered = false;
+    let bannerTimer = null;
 
     const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
 
-    /* ---------- overlay drawing ---------- */
-    function draw() {
-      const c = window.bgChart;
-      const rect = container.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
-      const cw = rect.width, ch = rect.height;
-      if (!cw || !ch) return;
-      const bw = Math.round(cw * dpr), bh = Math.round(ch * dpr);
-      if (ov.width !== bw || ov.height !== bh) { ov.width = bw; ov.height = bh; }
-      octx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      octx.clearRect(0, 0, cw, ch);
-      if (!c || !marks.length) return;
-
-      // the library lays out in window-size space and the canvas is stretched by CSS
-      const sx = cw / (c.W || cw), sy = ch / (c.H || ch);
-
-      octx.save();
-      octx.beginPath();
-      octx.rect(c.chartLeft * sx, c.chartTop * sy,
-                (c.chartRight - c.chartLeft) * sx, (c.priceBottom - c.chartTop) * sy);
-      octx.clip();
-
-      const R = 20;
-      for (const m of marks) {
-        const cx = c.indexToX(m.idx) * sx;
-        const cy = c.priceToY(m.price) * sy;
-        const col = COLORS[m.type];
-
-        // circle, drawn progressively like a pen
-        if (m.circle > 0) {
-          octx.strokeStyle = col; octx.lineWidth = 2.5; octx.lineCap = 'round';
-          octx.beginPath();
-          const a0 = -Math.PI / 2;
-          octx.arc(cx, cy, R, a0, a0 + Math.PI * 2 * m.circle);
-          octx.stroke();
-        }
-        // dot
-        if (m.dot > 0) {
-          octx.fillStyle = col;
-          octx.beginPath();
-          octx.arc(cx, cy, 3.5 * m.dot, 0, Math.PI * 2);
-          octx.fill();
-        }
-        // label
-        if (m.label > 0) {
-          const txt = NAMES[m.type] + '  ' + m.price.toFixed(2);
-          octx.font = '700 11px -apple-system, "Segoe UI", Roboto, sans-serif';
-          const tw = octx.measureText(txt).width + 14;
-          const above = m.type === 'res';
-          const ly = above ? cy - R - 20 : cy + R + 6;
-          octx.globalAlpha = m.label;
-          octx.fillStyle = col;
-          octx.beginPath();
-          if (octx.roundRect) octx.roundRect(cx - tw / 2, ly, tw, 16, 8); else octx.rect(cx - tw / 2, ly, tw, 16);
-          octx.fill();
-          octx.fillStyle = '#ffffff';
-          octx.textAlign = 'center'; octx.textBaseline = 'middle';
-          octx.fillText(txt, cx, ly + 8.5);
-          octx.globalAlpha = 1;
-        }
-      }
-      octx.restore();
+    function hexToRgba(hex, alpha) {
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
     }
-    function frame() {
-      rafId = null;
-      draw();
-      if (running || marks.length) ensureLoop();
-    }
-    function ensureLoop() { if (!rafId) rafId = requestAnimationFrame(frame); }
 
-    /* ---------- helpers ---------- */
+    /* ---------- Register custom drawing tools with the library ---------- */
+    function ensureToolRegistered(c) {
+      if (toolRegistered || !c || typeof c.addDrawingTool !== 'function') return;
+
+      // S/R Circle tool — clean stroke, NO glow/shadow
+      c.addDrawingTool({
+        id: 'srCircle',
+        label: 'SR Circle',
+        icon: '\u25C9',
+        onDraw: function (ctx, d, helpers) {
+          const x = helpers.indexToX(d.idx);
+          const y = helpers.priceToY(d.price);
+          const R = d.radius || 18;
+          const col = d.color || '#ff5d6c';
+
+          // Circle drawn progressively (pen-like)
+          if (d.progress > 0) {
+            ctx.save();
+            ctx.strokeStyle = col;
+            ctx.lineWidth = 2.4;
+            ctx.lineCap = 'round';
+            // No shadowBlur / shadowColor — flat, non-glowing stroke
+            const a0 = -Math.PI / 2;
+            const a1 = a0 + Math.PI * 2 * d.progress;
+            const wobble = Math.sin(performance.now() / 130) * 0.5;
+            ctx.beginPath();
+            ctx.arc(x, y, R + wobble, a0, a1);
+            ctx.stroke();
+            // Leading tip dot while drawing
+            if (d.progress < 1) {
+              const tipX = x + Math.cos(a1) * R;
+              const tipY = y + Math.sin(a1) * R;
+              ctx.fillStyle = '#ffffff';
+              ctx.beginPath();
+              ctx.arc(tipX, tipY, 3, 0, Math.PI * 2);
+              ctx.fill();
+            }
+            ctx.restore();
+          }
+          // Center dot
+          if (d.dot > 0) {
+            ctx.save();
+            ctx.fillStyle = col;
+            ctx.beginPath();
+            ctx.arc(x, y, 3.5 * d.dot, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+          }
+          // Label pill
+          if (d.label > 0) {
+            const txt = NAMES[d.srType] + '  ' + d.price.toFixed(2);
+            ctx.save();
+            ctx.globalAlpha = d.label;
+            ctx.font = '700 11px -apple-system, "Segoe UI", Roboto, sans-serif';
+            const tw = ctx.measureText(txt).width + 14;
+            const above = d.srType === 'res';
+            const ly = above ? y - R - 20 : y + R + 6;
+            ctx.fillStyle = col;
+            if (ctx.roundRect) {
+              ctx.beginPath();
+              ctx.roundRect(x - tw / 2, ly, tw, 16, 8);
+              ctx.fill();
+            } else {
+              ctx.fillRect(x - tw / 2, ly, tw, 16);
+            }
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(txt, x, ly + 8.5);
+            ctx.restore();
+          }
+        },
+        onHitTest: function (d, x, y, helpers) {
+          const dx = x - helpers.indexToX(d.idx);
+          const dy = y - helpers.priceToY(d.price);
+          return Math.sqrt(dx * dx + dy * dy) < (d.radius || 18) + 4;
+        }
+      });
+
+      // FVG Rectangle tool — animated draw (expands left→right like S/R circle), NO glow
+      c.addDrawingTool({
+        id: 'fvgRect',
+        label: 'FVG',
+        icon: '\u25AD',
+        onDraw: function (ctx, d, helpers) {
+          const x1 = helpers.indexToX(d.idx);
+          const x2full = helpers.chartRight + 30; // full right edge
+          const yTop = helpers.priceToY(d.top);
+          const yBot = helpers.priceToY(d.bottom);
+          const col = d.color;
+          // progress animates the rectangle width from 0 → 1 (expanding left to right)
+          const p = (d.progress != null) ? d.progress : 1;
+          const x2 = x1 + (x2full - x1) * p;
+          const w = x2 - x1;
+          const h = yBot - yTop;
+          if (w <= 0 || h <= 0) return;
+
+          ctx.save();
+          // Semi-transparent fill (dimmer if invalidated)
+          ctx.fillStyle = hexToRgba(col, d.invalidated ? 0.07 : 0.13);
+          ctx.fillRect(x1, yTop, w, h);
+          // Border — solid for active, dashed for invalidated
+          ctx.strokeStyle = col;
+          ctx.lineWidth = 1.4;
+          if (d.invalidated) ctx.setLineDash([5, 3]);
+          ctx.strokeRect(x1, yTop, w, h);
+          ctx.setLineDash([]);
+          // Leading edge line while drawing (white vertical line at the expansion front)
+          if (p < 1) {
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1.5;
+            ctx.globalAlpha = 0.85;
+            ctx.beginPath();
+            ctx.moveTo(x2, yTop);
+            ctx.lineTo(x2, yBot);
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+          }
+          // Label — only show after the rectangle is mostly drawn (>60%)
+          if (d.label > 0 && p > 0.6) {
+            ctx.globalAlpha = d.label;
+            ctx.font = '700 10px -apple-system, "Segoe UI", Roboto, sans-serif';
+            const fillTxt = d.fillPct > 0 ? ' \u00B7 ' + Math.round(d.fillPct * 100) + '% filled' : '';
+            const statusTxt = d.invalidated ? ' \u00B7 broken' : '';
+            const txt = (d.fvgType === 'bull' ? 'Bullish FVG' : 'Bearish FVG') + fillTxt + statusTxt;
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'top';
+            const tw = ctx.measureText(txt).width + 10;
+            ctx.fillStyle = hexToRgba(col, 0.92);
+            if (ctx.roundRect) {
+              ctx.beginPath();
+              ctx.roundRect(x1 + 3, yTop + 3, tw, 14, 4);
+              ctx.fill();
+            } else {
+              ctx.fillRect(x1 + 3, yTop + 3, tw, 14);
+            }
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(txt, x1 + 8, yTop + 5);
+          }
+          ctx.restore();
+        },
+        onHitTest: function (d, x, y, helpers) {
+          const x1 = helpers.indexToX(d.idx);
+          if (x < x1 || x > helpers.chartRight + 30) return false;
+          const yT = helpers.priceToY(d.top);
+          const yB = helpers.priceToY(d.bottom);
+          return y >= Math.min(yT, yB) && y <= Math.max(yT, yB);
+        }
+      });
+
+      toolRegistered = true;
+    }
+
+    /* ---------- tween / wait / camera helpers ---------- */
     function tween(ms, fn, my) {
       return new Promise((resolve) => {
         const t0 = performance.now();
@@ -1683,10 +1771,10 @@
         applyCamera(c);
       }, my);
     }
+    // Slight zoom out only (chart shrinks a little, not a full overview)
     function overviewCamera(c) {
-      const N = c.sim.candles.length;
-      const bs = Math.max(c.minBarSpacing, (c.chartRight - c.chartLeft) / (N + 8));
-      return { bs, ro: 4 };
+      const bs = Math.max(c.minBarSpacing, c.barSpacing * ZOOM_OUT_FACTOR);
+      return { bs, ro: c.rightOffset };
     }
     function focusCamera(c, idx) {
       const N = c.sim.candles.length;
@@ -1694,6 +1782,8 @@
       const xc = (c.chartLeft + c.chartRight) / 2;
       return { bs, ro: (c.chartRight - xc) / bs - (N - 1 - idx) };
     }
+
+    /* ---------- S/R detection (good levels, PIVOT_K sliding window) ---------- */
     function findLevels(c) {
       const cs = c.sim.candles, N = cs.length;
       for (let k = PIVOT_K; k >= 2; k--) {
@@ -1716,19 +1806,94 @@
       return [];
     }
 
+    /* ---------- FVG (Fair Value Gap) detection ----------
+       Bullish FVG: High[candle1] < Low[candle3] → gap between them
+       Bearish FVG: Low[candle1]  > High[candle3] → gap between them
+       Filters by displacement (candle 2 body size) and minimum gap size.
+       Keeps the most significant FVGs (largest gap) across the whole chart,
+       so some may be in the older part — visible when scrolled to first candles. */
+    function findFVGs(c) {
+      const cs = c.sim.candles, N = cs.length;
+      const fvgs = [];
+      for (let i = 0; i < N - 2; i++) {
+        const c1 = cs[i], c2 = cs[i + 1], c3 = cs[i + 2];
+        const displacement = Math.abs(c2.close - c2.open);
+        if (displacement < FVG_MIN_DISPLACEMENT) continue;
+
+        // Bullish FVG: gap up between candle 1 high and candle 3 low
+        if (c1.high < c3.low) {
+          const gapSize = c3.low - c1.high;
+          if (gapSize >= FVG_MIN_GAP) {
+            fvgs.push({ idx: i, type: 'bull', top: c3.low, bottom: c1.high, gapSize });
+          }
+        }
+        // Bearish FVG: gap down between candle 3 high and candle 1 low
+        if (c1.low > c3.high) {
+          const gapSize = c1.low - c3.high;
+          if (gapSize >= FVG_MIN_GAP) {
+            fvgs.push({ idx: i, type: 'bear', top: c1.low, bottom: c3.high, gapSize });
+          }
+        }
+      }
+      // Sort by gap size (most significant first), keep top FVG_MAX,
+      // then re-sort chronologically for drawing order.
+      fvgs.sort(function (a, b) { return b.gapSize - a.gapSize; });
+      const kept = fvgs.slice(0, FVG_MAX);
+      kept.sort(function (a, b) { return a.idx - b.idx; });
+      return kept;
+    }
+
+    /* ---------- Check FVG fill status ----------
+       Returns how much of the gap has been filled by later price action,
+       and whether the gap has been invalidated (price closed beyond it). */
+    function checkFVGFill(c, fvg) {
+      const cs = c.sim.candles, N = cs.length;
+      let maxFill = 0;
+      let invalidated = false;
+      let entered = false;
+      for (let i = fvg.idx + 3; i < N; i++) {
+        // Did price enter the gap zone?
+        if (cs[i].low <= fvg.top && cs[i].high >= fvg.bottom) {
+          entered = true;
+          const fillTop = Math.min(cs[i].high, fvg.top);
+          const fillBot = Math.max(cs[i].low, fvg.bottom);
+          const fillPct = (fillTop - fillBot) / (fvg.top - fvg.bottom);
+          if (fillPct > maxFill) maxFill = fillPct;
+        }
+        // Invalidation: price closed beyond the gap on the wrong side
+        if (fvg.type === 'bull' && cs[i].close < fvg.bottom) invalidated = true;
+        if (fvg.type === 'bear' && cs[i].close > fvg.top)    invalidated = true;
+      }
+      return { filled: maxFill, invalidated, entered };
+    }
+
+    /* ---------- FVG color logic ----------
+       Active / respected gap → its type color (bull=green, bear=red)
+       Broken gap → opposite color (bull broken=red, bear broken=green) */
+    function fvgColor(fvg, status) {
+      if (status.invalidated) {
+        return fvg.type === 'bull' ? '#ff5d6c' : '#20c997';
+      }
+      return fvg.type === 'bull' ? '#20c997' : '#ff5d6c';
+    }
+
     /* ---------- public API ---------- */
     window.clearAnalysisMarks = function () {
-      token++;                       // cancels a running analysis
+      token++;
       running = false;
-      marks = [];
+      if (bannerTimer) { clearTimeout(bannerTimer); bannerTimer = null; }
+      const c = window.bgChart;
+      if (c && typeof c.clearDrawings === 'function') {
+        try { c.clearDrawings(); } catch (e) {}
+      }
       lock.classList.remove('active');
       banner.classList.remove('show');
-      ensureLoop();
     };
     window.abortChartAnalysis = function () {
       if (!running) return;
       token++;
       running = false;
+      if (bannerTimer) { clearTimeout(bannerTimer); bannerTimer = null; }
       lock.classList.remove('active');
       banner.classList.remove('show');
     };
@@ -1736,58 +1901,106 @@
     window.runChartAnalysis = async function () {
       const c = window.bgChart;
       if (!c || !c.sim || c.sim.candles.length < 20) return 'done';
+      ensureToolRegistered(c);
       const my = ++token;
       const alive = () => my === token;
       running = true;
-      marks = [];
-      ensureLoop();
 
-      // banner + lock
+      // Clear old drawings
+      if (typeof c.clearDrawings === 'function') {
+        try { c.clearDrawings(); } catch (e) {}
+      }
+
+      // banner + lock — banner auto-hides after BANNER_MS (6s)
       const nav = document.querySelector('.bottom-nav');
       banner.style.bottom = ((nav ? nav.offsetHeight : 64) + 12) + 'px';
       banner.classList.add('show');
+      if (bannerTimer) clearTimeout(bannerTimer);
+      bannerTimer = setTimeout(function () {
+        if (my === token) banner.classList.remove('show');
+        bannerTimer = null;
+      }, BANNER_MS);
       lock.classList.add('active');
 
+      // Save the user's current view — we return to it at the end (recent candles)
       const start = { bs: c.barSpacing, ro: c.rightOffset };
+
       const levels = findLevels(c);
       await wait(500, my);
 
+      // ====== Phase 1: S/R levels — zoom in, draw circle on each ======
       for (const lv of levels) {
         if (!alive()) return 'aborted';
-        // 1) shrink the chart
         const ov1 = overviewCamera(c);
         await cameraTo(ov1.bs, ov1.ro, T.out, my);
         if (!alive()) return 'aborted';
-        // 2) travel + enlarge on the level
         const f = focusCamera(c, lv.idx);
         await cameraTo(f.bs, f.ro, T.in, my);
         if (!alive()) return 'aborted';
-        // 3) draw circle slowly, then dot, then label
-        const m = { idx: lv.idx, price: lv.price, type: lv.type, circle: 0, dot: 0, label: 0 };
-        marks.push(m);
-        await tween(T.circle, (t) => { m.circle = ease(t); }, my);
+        const m = {
+          type: 'srCircle',
+          idx: lv.idx,
+          price: lv.price,
+          srType: lv.type,
+          color: COLORS[lv.type],
+          radius: 18,
+          progress: 0,
+          dot: 0,
+          label: 0
+        };
+        c.addDrawing(m);
+        await tween(T.circle, (t) => { m.progress = ease(t); }, my);
         await tween(T.dot,    (t) => { m.dot = t; }, my);
         await tween(T.label,  (t) => { m.label = t; }, my);
         await wait(T.hold, my);
       }
-      if (!alive()) return 'aborted';
 
-      // overview with all marks, then back to the user's original view
-      const ovEnd = overviewCamera(c);
-      await cameraTo(ovEnd.bs, ovEnd.ro, T.out, my);
+      // ====== Phase 2: FVG zones — zoom in on each, draw rectangle (same style as S/R) ======
       if (!alive()) return 'aborted';
-      await wait(900, my);
+      const fvgs = findFVGs(c);
+      for (const fvg of fvgs) {
+        if (!alive()) return 'aborted';
+        const status = checkFVGFill(c, fvg);
+        const col = fvgColor(fvg, status);
+
+        // 1) zoom out slightly (same "step back" as S/R)
+        const ov = overviewCamera(c);
+        await cameraTo(ov.bs, ov.ro, T.out, my);
+        if (!alive()) return 'aborted';
+        // 2) zoom in on the FVG formation (center on the middle candle of the 3-candle pattern)
+        const f = focusCamera(c, fvg.idx + 1);
+        await cameraTo(f.bs, f.ro, T.in, my);
+        if (!alive()) return 'aborted';
+        // 3) draw the rectangle progressively (expands left→right), then label
+        const m = {
+          type: 'fvgRect',
+          idx: fvg.idx,
+          top: fvg.top,
+          bottom: fvg.bottom,
+          fvgType: fvg.type,
+          color: col,
+          fillPct: status.filled,
+          invalidated: status.invalidated,
+          progress: 0,
+          label: 0
+        };
+        c.addDrawing(m);
+        await tween(T.fvg,   (t) => { m.progress = ease(t); }, my);
+        await tween(T.label, (t) => { m.label = ease(t); }, my);
+        await wait(T.fvgHold, my);
+      }
+
+      // ====== Phase 3: return to the recent candles (user's original view) ======
       if (!alive()) return 'aborted';
-      await cameraTo(start.bs, start.ro, 1000, my);
+      await cameraTo(start.bs, start.ro, 1300, my);
       if (!alive()) return 'aborted';
+      await wait(500, my);
 
       running = false;
       lock.classList.remove('active');
       banner.classList.remove('show');
       return 'done';
     };
-
-    window.addEventListener('resize', ensureLoop);
   })();
 
   /* ============================================================
