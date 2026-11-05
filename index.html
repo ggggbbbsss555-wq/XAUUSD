@@ -801,6 +801,32 @@
       border-radius: 8px; padding: 8px 16px; font-size: 12px; font-weight: 700;
       cursor: pointer; font-family: inherit;
     }
+
+    /* ====== Chart analysis (overlay, lock, banner) ====== */
+    .chart-container canvas.analysis-overlay {
+      pointer-events: none;
+      filter: none !important;      /* never inverted in light theme */
+      z-index: 4;
+    }
+    .analysis-lock {
+      position: absolute; inset: 0; z-index: 6;
+      display: none; touch-action: none; cursor: not-allowed;
+    }
+    .analysis-lock.active { display: block; }
+    .analysis-banner {
+      position: absolute; left: 50%; bottom: 76px; z-index: 150;
+      transform: translateX(-50%) translateY(20px);
+      max-width: calc(100% - 28px); width: max-content;
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 16px; border-radius: 100px;
+      background: var(--card-elev); border: 1px solid var(--border);
+      color: var(--text); font-size: 12px; font-weight: 700;
+      direction: rtl; text-align: center;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.3s ease, transform 0.3s ease;
+    }
+    .analysis-banner.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    .analysis-banner .ico { color: var(--amber); font-size: 14px; line-height: 1; }
   </style>
 </head>
 <body>
@@ -1345,6 +1371,7 @@
     const fab = document.getElementById('analysisFab');
     const notchPath = document.getElementById('navTopPath');
     if (fab) fab.classList.toggle('visible', page === 'chart');
+    if (page !== 'chart' && typeof window.abortChartAnalysis === 'function') window.abortChartAnalysis();
     const navEl = document.querySelector('.bottom-nav');
     if (navEl) navEl.classList.toggle('has-fab', page === 'chart');
     updateNavTopLine(page === 'chart');
@@ -1494,11 +1521,273 @@
       }, 1000);
     };
 
+    // Used when the analysis is cancelled (e.g. user leaves the Chart page)
+    window.cancelAnalysisUI = function () {
+      fab.classList.remove('analyzing', 'done');
+      busy = false;
+    };
+
     fab.addEventListener('click', () => {
       if (!window.startAnalysis()) return;
-      // DEMO: replace this timer with your real analysis; call finishAnalysis() when it ends
-      setTimeout(window.finishAnalysis, ANALYSIS_DEMO_MS);
+      if (typeof window.runChartAnalysis === 'function') {
+        window.runChartAnalysis().then(
+          (r) => (r === 'aborted' ? window.cancelAnalysisUI() : window.finishAnalysis()),
+          () => window.cancelAnalysisUI()
+        );
+      } else {
+        setTimeout(window.finishAnalysis, ANALYSIS_DEMO_MS);
+      }
     });
+  })();
+
+  /* ============================================================
+     Chart analysis — "human analyst" style
+     1) bottom banner: don't touch the chart
+     2) zoom out -> zoom in on a swing high/low (scrolling back & forth)
+     3) slowly draw a circle + dot on it, then move to the next one
+     Marks stay on the chart (anchored to candle index + price).
+     ============================================================ */
+  (function () {
+    const LEVELS_PER_SIDE = 2;     // 2 resistances + 2 supports = 4 levels (set 4 for 8 levels)
+    const PIVOT_K         = 6;     // bars on each side that must be lower/higher
+    const ZOOM_IN_SPACING = 26;    // barSpacing when focusing on a level
+    const T = { out: 850, in: 1300, circle: 1800, dot: 260, label: 320, hold: 450 };
+    const COLORS = { res: '#ff5d6c', sup: '#20c997' };
+    const NAMES  = { res: '\u0645\u0642\u0627\u0648\u0645\u0629', sup: '\u062f\u0639\u0645' };
+
+    const container = document.getElementById('chartContainer');
+    if (!container) return;
+
+    // overlay canvas (circles / dots / labels)
+    const ov = document.createElement('canvas');
+    ov.className = 'analysis-overlay';
+    container.appendChild(ov);
+    const octx = ov.getContext('2d');
+
+    // lock layer (blocks touching the chart while analysing)
+    const lock = document.createElement('div');
+    lock.className = 'analysis-lock';
+    container.appendChild(lock);
+
+    // bottom banner
+    const banner = document.createElement('div');
+    banner.className = 'analysis-banner';
+    banner.innerHTML = '<span class="ico">\u26A0</span><span>\u0644\u0627 \u062A\u0644\u0645\u0633 \u0627\u0644\u0634\u0627\u0631\u062A \u2014 \u0627\u0646\u062A\u0638\u0631 \u062D\u062A\u0649 \u064A\u0646\u062A\u0647\u064A \u0627\u0644\u062A\u062D\u0644\u064A\u0644</span>';
+    document.querySelector('.phone').appendChild(banner);
+
+    let marks = [];
+    let running = false;
+    let token = 0;
+    let rafId = null;
+
+    const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+
+    /* ---------- overlay drawing ---------- */
+    function draw() {
+      const c = window.bgChart;
+      const rect = container.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const cw = rect.width, ch = rect.height;
+      if (!cw || !ch) return;
+      const bw = Math.round(cw * dpr), bh = Math.round(ch * dpr);
+      if (ov.width !== bw || ov.height !== bh) { ov.width = bw; ov.height = bh; }
+      octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      octx.clearRect(0, 0, cw, ch);
+      if (!c || !marks.length) return;
+
+      // the library lays out in window-size space and the canvas is stretched by CSS
+      const sx = cw / (c.W || cw), sy = ch / (c.H || ch);
+
+      octx.save();
+      octx.beginPath();
+      octx.rect(c.chartLeft * sx, c.chartTop * sy,
+                (c.chartRight - c.chartLeft) * sx, (c.priceBottom - c.chartTop) * sy);
+      octx.clip();
+
+      const R = 20;
+      for (const m of marks) {
+        const cx = c.indexToX(m.idx) * sx;
+        const cy = c.priceToY(m.price) * sy;
+        const col = COLORS[m.type];
+
+        // circle, drawn progressively like a pen
+        if (m.circle > 0) {
+          octx.strokeStyle = col; octx.lineWidth = 2.5; octx.lineCap = 'round';
+          octx.beginPath();
+          const a0 = -Math.PI / 2;
+          octx.arc(cx, cy, R, a0, a0 + Math.PI * 2 * m.circle);
+          octx.stroke();
+        }
+        // dot
+        if (m.dot > 0) {
+          octx.fillStyle = col;
+          octx.beginPath();
+          octx.arc(cx, cy, 3.5 * m.dot, 0, Math.PI * 2);
+          octx.fill();
+        }
+        // label
+        if (m.label > 0) {
+          const txt = NAMES[m.type] + '  ' + m.price.toFixed(2);
+          octx.font = '700 11px -apple-system, "Segoe UI", Roboto, sans-serif';
+          const tw = octx.measureText(txt).width + 14;
+          const above = m.type === 'res';
+          const ly = above ? cy - R - 20 : cy + R + 6;
+          octx.globalAlpha = m.label;
+          octx.fillStyle = col;
+          octx.beginPath();
+          if (octx.roundRect) octx.roundRect(cx - tw / 2, ly, tw, 16, 8); else octx.rect(cx - tw / 2, ly, tw, 16);
+          octx.fill();
+          octx.fillStyle = '#ffffff';
+          octx.textAlign = 'center'; octx.textBaseline = 'middle';
+          octx.fillText(txt, cx, ly + 8.5);
+          octx.globalAlpha = 1;
+        }
+      }
+      octx.restore();
+    }
+    function frame() {
+      rafId = null;
+      draw();
+      if (running || marks.length) ensureLoop();
+    }
+    function ensureLoop() { if (!rafId) rafId = requestAnimationFrame(frame); }
+
+    /* ---------- helpers ---------- */
+    function tween(ms, fn, my) {
+      return new Promise((resolve) => {
+        const t0 = performance.now();
+        (function step(now) {
+          if (my !== token) { resolve(); return; }
+          const t = Math.min(1, (now - t0) / ms);
+          fn(t);
+          if (t < 1) requestAnimationFrame(step); else resolve();
+        })(t0);
+      });
+    }
+    function wait(ms, my) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+    function applyCamera(c) {
+      c._momentum = null;
+      c.constrainRightOffset();
+      c.invalidateTimeMarks();
+      c.autoScale();
+    }
+    function cameraTo(bs, ro, ms, my) {
+      const c = window.bgChart;
+      const bs0 = c.barSpacing, ro0 = c.rightOffset;
+      return tween(ms, (t) => {
+        const e = ease(t);
+        c.barSpacing = bs0 * Math.pow(bs / bs0, e);
+        c.rightOffset = ro0 + (ro - ro0) * e;
+        applyCamera(c);
+      }, my);
+    }
+    function overviewCamera(c) {
+      const N = c.sim.candles.length;
+      const bs = Math.max(c.minBarSpacing, (c.chartRight - c.chartLeft) / (N + 8));
+      return { bs, ro: 4 };
+    }
+    function focusCamera(c, idx) {
+      const N = c.sim.candles.length;
+      const bs = Math.min(c.maxBarSpacing, ZOOM_IN_SPACING);
+      const xc = (c.chartLeft + c.chartRight) / 2;
+      return { bs, ro: (c.chartRight - xc) / bs - (N - 1 - idx) };
+    }
+    function findLevels(c) {
+      const cs = c.sim.candles, N = cs.length;
+      for (let k = PIVOT_K; k >= 2; k--) {
+        const hi = [], lo = [];
+        for (let i = k; i < N - k; i++) {
+          let isH = true, isL = true;
+          for (let j = i - k; j <= i + k; j++) {
+            if (j === i) continue;
+            if (cs[j].high > cs[i].high) isH = false;
+            if (cs[j].low  < cs[i].low)  isL = false;
+          }
+          if (isH) hi.push({ idx: i, price: cs[i].high, type: 'res' });
+          if (isL) lo.push({ idx: i, price: cs[i].low,  type: 'sup' });
+        }
+        if (hi.length >= LEVELS_PER_SIDE && lo.length >= LEVELS_PER_SIDE) {
+          return hi.slice(-LEVELS_PER_SIDE).concat(lo.slice(-LEVELS_PER_SIDE))
+                   .sort((a, b) => b.idx - a.idx);        // newest -> oldest
+        }
+      }
+      return [];
+    }
+
+    /* ---------- public API ---------- */
+    window.clearAnalysisMarks = function () {
+      token++;                       // cancels a running analysis
+      running = false;
+      marks = [];
+      lock.classList.remove('active');
+      banner.classList.remove('show');
+      ensureLoop();
+    };
+    window.abortChartAnalysis = function () {
+      if (!running) return;
+      token++;
+      running = false;
+      lock.classList.remove('active');
+      banner.classList.remove('show');
+    };
+
+    window.runChartAnalysis = async function () {
+      const c = window.bgChart;
+      if (!c || !c.sim || c.sim.candles.length < 20) return 'done';
+      const my = ++token;
+      const alive = () => my === token;
+      running = true;
+      marks = [];
+      ensureLoop();
+
+      // banner + lock
+      const nav = document.querySelector('.bottom-nav');
+      banner.style.bottom = ((nav ? nav.offsetHeight : 64) + 12) + 'px';
+      banner.classList.add('show');
+      lock.classList.add('active');
+
+      const start = { bs: c.barSpacing, ro: c.rightOffset };
+      const levels = findLevels(c);
+      await wait(500, my);
+
+      for (const lv of levels) {
+        if (!alive()) return 'aborted';
+        // 1) shrink the chart
+        const ov1 = overviewCamera(c);
+        await cameraTo(ov1.bs, ov1.ro, T.out, my);
+        if (!alive()) return 'aborted';
+        // 2) travel + enlarge on the level
+        const f = focusCamera(c, lv.idx);
+        await cameraTo(f.bs, f.ro, T.in, my);
+        if (!alive()) return 'aborted';
+        // 3) draw circle slowly, then dot, then label
+        const m = { idx: lv.idx, price: lv.price, type: lv.type, circle: 0, dot: 0, label: 0 };
+        marks.push(m);
+        await tween(T.circle, (t) => { m.circle = ease(t); }, my);
+        await tween(T.dot,    (t) => { m.dot = t; }, my);
+        await tween(T.label,  (t) => { m.label = t; }, my);
+        await wait(T.hold, my);
+      }
+      if (!alive()) return 'aborted';
+
+      // overview with all marks, then back to the user's original view
+      const ovEnd = overviewCamera(c);
+      await cameraTo(ovEnd.bs, ovEnd.ro, T.out, my);
+      if (!alive()) return 'aborted';
+      await wait(900, my);
+      if (!alive()) return 'aborted';
+      await cameraTo(start.bs, start.ro, 1000, my);
+      if (!alive()) return 'aborted';
+
+      running = false;
+      lock.classList.remove('active');
+      banner.classList.remove('show');
+      return 'done';
+    };
+
+    window.addEventListener('resize', ensureLoop);
   })();
 
   /* ============================================================
@@ -1681,6 +1970,7 @@
           window.bgChart.setTimeframe({ label: tf, ms: ms });
           const candles = generateXAUCandles(200, ms);
           window.bgChart.setData(candles);
+          if (typeof window.clearAnalysisMarks === 'function') window.clearAnalysisMarks();
         } catch (e) { console.error('TF change error:', e); }
       }
     });
