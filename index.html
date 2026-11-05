@@ -1,10 +1,20 @@
-
 <!DOCTYPE html>
 <html lang="ar" dir="ltr" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>BadiGold - XAUUSD Terminal</title>
+  <!-- Apply saved theme BEFORE any rendering to avoid flash of wrong theme -->
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem('bg-theme');
+        if (saved === 'light' || saved === 'dark') {
+          document.documentElement.setAttribute('data-theme', saved);
+        }
+      } catch (e) {}
+    })();
+  </script>
   <style>
     /* ====== Brand & accent colors (shared between themes) ====== */
     :root {
@@ -101,7 +111,7 @@
       position: fixed; inset: 0; z-index: 300;
       display: flex; flex-direction: column;
       align-items: center; justify-content: center;
-      background: #000000;
+      background: var(--bg);
       transition: opacity 0.6s ease, visibility 0.6s ease;
     }
     .splash.hide { opacity: 0; visibility: hidden; pointer-events: none; }
@@ -609,13 +619,30 @@
     .switch-mini.on { background: var(--brand-gradient); }
     .switch-mini.on::after { transform: translateX(15px); }
 
-    /* ====== Bottom navigation (4 tabs) ====== */
+    /* ====== Bottom navigation (4 tabs + center notch for the button) ====== */
     .bottom-nav {
       position: absolute; bottom: 0; left: 0; right: 0;
       background: var(--bg);
       backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
-      border-top: 1px solid var(--border);
+      border-top: none; /* the top line is drawn by an SVG with a circular notch */
       display: flex; padding: 6px 6px 10px; z-index: 100;
+    }
+    /* SVG line on top of the nav — always visible. With the .visible class it
+       shows the circular notch around the FAB (Chart page only); otherwise a
+       straight line is shown. */
+    .nav-top-line {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100px;
+      pointer-events: none;
+      z-index: 101;
+      overflow: visible;
+      display: block;
+    }
+    .nav-top-line path {
+      fill: none;
+      stroke: var(--border);
+      stroke-width: 1.5;
     }
     .nav-tab {
       flex: 1; background: transparent; border: none;
@@ -626,6 +653,15 @@
     }
     .nav-tab svg { width: 18px; height: 18px; }
     .nav-tab span { font-size: 9px; font-weight: 700; letter-spacing: 0.02em; }
+    /* Center spacer — reserves room for the Analysis button, centers it vertically */
+    .nav-spacer {
+      flex: 0 0 110px;
+      height: 100%;
+      display: none;               /* hidden on other pages -> tabs are evenly spaced */
+      align-items: center;
+      justify-content: center;
+    }
+    .bottom-nav.has-fab .nav-spacer { display: flex; }
     .nav-tab:hover { color: var(--text-muted); }
     .nav-tab.active { color: var(--primary); background: var(--primary-soft); }
     .nav-tab.active::before {
@@ -648,6 +684,34 @@
       color: #5a3a00;
       box-shadow: 0 2px 8px rgba(255,215,0,0.6), 0 0 12px rgba(255,215,0,0.4);
     }
+
+    /* ====== Center Analysis button — ARCH (نسخة مصغّرة من نفس منحنى الفجوة) ====== */
+    /* Flat (no glow). Its outline is the SAME bezier curve as the nav notch, scaled to 88%. */
+    .analysis-fab {
+      position: absolute;
+      bottom: 22px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 84.48px;
+      height: 38.72px;
+      background: var(--brand-gradient);
+      -webkit-clip-path: path('M 0 0 C 23.23 0 0 38.72 42.24 38.72 C 84.48 38.72 61.25 0 84.48 0 Z');
+              clip-path: path('M 0 0 C 23.23 0 0 38.72 42.24 38.72 C 84.48 38.72 61.25 0 84.48 0 Z');
+      border: none;
+      box-shadow: none;
+      color: #ffffff;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 102;
+      padding-bottom: 7px;
+      transition: transform 0.15s;
+    }
+    .analysis-fab svg { width: 20px; height: 20px; flex-shrink: 0; }
+    .analysis-fab:hover { transform: translateX(-50%) translateY(-1px); }
+    .analysis-fab:active { transform: translateX(-50%) translateY(0); }
+    .analysis-fab.visible { display: flex; }
 
     /* home indicator removed — no phone frame */
 
@@ -1061,8 +1125,8 @@
 
   </main>
 
-  <!-- ====== Bottom navigation (4 tabs) ====== -->
-  <nav class="bottom-nav">
+  <!-- ====== Bottom navigation (4 tabs + center gap for FAB) ====== -->
+  <nav class="bottom-nav has-fab">
     <button class="nav-tab active" data-page="chart">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 6-6"/></svg>
       <span>Chart</span>
@@ -1072,6 +1136,8 @@
       <span>History</span>
       <span class="nav-badge" id="historyBadge">3</span>
     </button>
+    <!-- Center spacer (empty — the FAB is rendered above the nav) -->
+    <div class="nav-spacer" aria-hidden="true"></div>
     <button class="nav-tab" data-page="plans">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
       <span>Plans</span>
@@ -1080,7 +1146,35 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       <span>Settings</span>
     </button>
+    <!-- SVG top line — straight by default, with circular notch when on Chart page -->
+    <svg class="nav-top-line" id="navTopLine" xmlns="http://www.w3.org/2000/svg">
+      <path id="navTopPath" d="M 0 1 L 390 1" />
+    </svg>
   </nav>
+
+  <!-- ====== Analysis button (arch shape with logo+search icon, only on Chart page) ====== -->
+  <button class="analysis-fab" id="analysisFab" title="Analysis">
+    <!-- Candlestick logo (white with gold middle) inside a magnifier outline -->
+    <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <!-- Magnifier lens circle (outline) -->
+      <circle cx="20" cy="20" r="16" fill="none" stroke="#ffffff" stroke-width="2.5"/>
+      <!-- Magnifier handle -->
+      <line x1="32" y1="32" x2="42" y2="42" stroke="#ffffff" stroke-width="3.2" stroke-linecap="round"/>
+      <!-- Three candlesticks INSIDE the lens -->
+      <g fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round">
+        <line x1="11" y1="15" x2="11" y2="27"/>
+        <line x1="11" y1="18" x2="8" y2="18"/>
+        <line x1="11" y1="24" x2="14" y2="24"/>
+        <line x1="20" y1="13" x2="20" y2="9"/>
+        <line x1="20" y1="28" x2="20" y2="31"/>
+        <line x1="29" y1="17" x2="29" y2="27"/>
+        <line x1="29" y1="19" x2="26" y2="19"/>
+        <line x1="29" y1="24" x2="32" y2="24"/>
+      </g>
+      <!-- Middle candle body (gold) -->
+      <rect x="17" y="13" width="6" height="15" rx="1.2" fill="#FFD700"/>
+    </svg>
+  </button>
 
   <!-- ====== Activation key modal ====== -->
   <div class="modal-back" id="keyModal">
@@ -1156,6 +1250,41 @@
   /* ============================================================
      Bottom navigation + menu navigation
      ============================================================ */
+  /* ============================================================
+     Draw the nav top line — straight, or with a smooth semicircular
+     notch curving DOWNWARD around the FAB. The notch is proportionally
+     bigger than the FAB (with reasonable margin on all sides).
+     ============================================================ */
+  function updateNavTopLine(notch) {
+    const svg = document.getElementById('navTopLine');
+    const path = document.getElementById('navTopPath');
+    if (!svg || !path) return;
+    const w = svg.clientWidth || window.innerWidth || 390;
+    const cx = w / 2;              // center x
+    const y = 1;                   // baseline y of the line
+    const r = 48;                  // notch half-width
+    const depth = 44;              // how far the curve dips DOWN below the line
+    if (notch) {
+      const k = r * 0.55;          // smoothness factor
+      path.setAttribute('d',
+        'M 0 ' + y +
+        ' L ' + (cx - r) + ' ' + y +
+        ' C ' + (cx - r + k) + ' ' + y +
+          ' ' + (cx - r) + ' ' + (y + depth) +
+          ' ' + cx + ' ' + (y + depth) +
+        ' C ' + (cx + r) + ' ' + (y + depth) +
+          ' ' + (cx + r - k) + ' ' + y +
+          ' ' + (cx + r) + ' ' + y +
+        ' L ' + w + ' ' + y);
+    } else {
+      path.setAttribute('d', 'M 0 ' + y + ' L ' + w + ' ' + y);
+    }
+    // Put the FAB's top edge on the nav top line (FAB height = 38.72)
+    const fab = document.getElementById('analysisFab');
+    const nav = document.querySelector('.bottom-nav');
+    if (fab && nav) fab.style.bottom = (nav.offsetHeight - y - 38.72) + 'px';
+  }
+
   function switchPage(page) {
     document.querySelectorAll('.nav-tab').forEach(t => {
       t.classList.toggle('active', t.dataset.page === page);
@@ -1164,6 +1293,13 @@
     const target = document.getElementById('page-' + page);
     if (target) target.classList.add('active');
     document.querySelector('.app-main').scrollTop = 0;
+    // Show the floating Analysis button + notch line ONLY on the Chart page
+    const fab = document.getElementById('analysisFab');
+    const notchPath = document.getElementById('navTopPath');
+    if (fab) fab.classList.toggle('visible', page === 'chart');
+    const navEl = document.querySelector('.bottom-nav');
+    if (navEl) navEl.classList.toggle('has-fab', page === 'chart');
+    updateNavTopLine(page === 'chart');
     // Trigger chart resize when switching to chart page
     if (page === 'chart' && window.bgChart) {
       setTimeout(resizeChart, 60);
@@ -1173,6 +1309,19 @@
 
   document.querySelectorAll('.nav-tab').forEach(tab => {
     tab.addEventListener('click', () => switchPage(tab.dataset.page));
+  });
+
+  // Show the Analysis FAB + notch on initial load (Chart is the default page)
+  setTimeout(() => {
+    const fab = document.getElementById('analysisFab');
+    if (fab) fab.classList.add('visible');
+    updateNavTopLine(true);
+  }, 2800); // after splash hides
+
+  // Redraw the nav top line on resize (keeps the notch centered)
+  window.addEventListener('resize', () => {
+    const fab = document.getElementById('analysisFab');
+    updateNavTopLine(fab && fab.classList.contains('visible'));
   });
 
   // Menu items with data-nav attribute navigate to a page
@@ -1217,6 +1366,57 @@
 
   // The badge is hidden by default. To show it, call showNewSignalBadge(count)
   // when your backend notifies that a new signal has arrived.
+
+  /* ============================================================
+     Swipe navigation between pages
+     - Swipe LEFT : Settings -> Plans -> History -> Chart
+     - Swipe RIGHT: only History -> Settings (everything else is blocked)
+     Edit SWIPE_LEFT / SWIPE_RIGHT to change the allowed moves.
+     ============================================================ */
+  (function () {
+    const SWIPE_LEFT  = { account: 'plans', plans: 'signals', signals: 'chart' };
+    const SWIPE_RIGHT = { signals: 'account' };
+    const MIN_DX = 60;      // minimum horizontal distance (px)
+    const RATIO  = 1.5;     // horizontal must dominate vertical
+
+    const area = document.querySelector('.app-main');
+    let sx = 0, sy = 0, tracking = false;
+
+    function currentPage() {
+      const el = document.querySelector('.page.active');
+      return el ? el.id.replace('page-', '') : null;
+    }
+    function modalOpen() {
+      const m = document.getElementById('keyModal');
+      return m && m.classList.contains('open');
+    }
+    function start(x, y, target) {
+      if (modalOpen()) return;
+      if (target && target.closest && target.closest('input, textarea')) return;
+      sx = x; sy = y; tracking = true;
+    }
+    function end(x, y) {
+      if (!tracking) return;
+      tracking = false;
+      const dx = x - sx, dy = y - sy;
+      if (Math.abs(dx) < MIN_DX || Math.abs(dx) < Math.abs(dy) * RATIO) return;
+      const page = currentPage();
+      const next = dx < 0 ? SWIPE_LEFT[page] : SWIPE_RIGHT[page];
+      if (next) switchPage(next);
+    }
+
+    area.addEventListener('touchstart', (e) => {
+      const t = e.changedTouches[0]; start(t.clientX, t.clientY, e.target);
+    }, { passive: true });
+    area.addEventListener('touchend', (e) => {
+      const t = e.changedTouches[0]; end(t.clientX, t.clientY);
+    }, { passive: true });
+    area.addEventListener('touchcancel', () => { tracking = false; }, { passive: true });
+
+    // Mouse drag (desktop / PyWebView)
+    area.addEventListener('mousedown', (e) => start(e.clientX, e.clientY, e.target));
+    window.addEventListener('mouseup', (e) => end(e.clientX, e.clientY));
+  })();
 
   /* ============================================================
      Upgrade button — navigates to the Plans page
