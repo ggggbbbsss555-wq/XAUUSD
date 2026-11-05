@@ -1,0 +1,1384 @@
+<!DOCTYPE html>
+<html lang="ar" dir="ltr" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BadiGold - XAUUSD Terminal</title>
+  <style>
+    :root {
+      --primary:        #4c8dff;
+      --primary-hover:  #3b78e8;
+      --primary-soft:   rgba(76, 141, 255, 0.14);
+      --accent:         #43d9ff;
+      --brand-gradient: linear-gradient(135deg, #43D9FF 0%, #4C8DFF 100%);
+      --text-gradient:  linear-gradient(90deg, #43D9FF 0%, #4C8DFF 100%);
+
+      --gold:           #FFD700;
+      --gold-warm:      #FFA751;
+      --gold-soft:      rgba(255, 215, 0, 0.12);
+      --gold-gradient:  linear-gradient(135deg, #FFE259 0%, #FFA751 100%);
+
+      --green:          #20c997;
+      --red:            #ff5d6c;
+      --amber:          #f59e0b;
+
+      --bg:             #0a0d14;
+      --bg-soft:        #0f131c;
+      --card:           #131928;
+      --card-elev:      #181f30;
+      --border:         #232c40;
+      --border-soft:    #1a2232;
+      --text:           #e8ecf4;
+      --text-muted:     #a3acc0;
+      --text-faint:     #6d7892;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      height: 100%;
+      width: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      -webkit-font-smoothing: antialiased;
+      font-size: 14px;
+      line-height: 1.5;
+      overflow: hidden;
+    }
+
+    body { display: block; }
+
+    /* ====== App container — fills entire screen (no phone frame) ====== */
+    .phone {
+      position: relative;
+      width: 100%;
+      height: 100vh;
+      height: 100dvh;
+      background: var(--bg);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    /* removed notch, status bar, home indicator */
+
+    /* ====== Splash ====== */
+    .splash {
+      position: fixed; inset: 0; z-index: 300;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      background: radial-gradient(120% 120% at 50% 45%, #0e1522 0%, #090c13 60%, #05070b 100%);
+      transition: opacity 0.6s ease, visibility 0.6s ease;
+    }
+    .splash.hide { opacity: 0; visibility: hidden; pointer-events: none; }
+    .splash-brand {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 10px;
+      animation: logoIn 0.9s cubic-bezier(0.34,1.56,0.64,1) both;
+    }
+    .splash-logo { width: 64px; height: 58px; flex-shrink: 0; }
+    @keyframes logoIn { 0% { opacity:0; transform:scale(0.7); } 100% { opacity:1; transform:scale(1); } }
+    .splash-wordmark { font-size: 30px; font-weight: 800; letter-spacing: 0.01em; white-space: nowrap; }
+    .splash-wordmark .c { background: var(--text-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .splash-tag { font-size: 10px; letter-spacing: 0.28em; text-transform: uppercase; color: var(--text-faint); animation: rise 0.7s 0.55s both; }
+    .splash-tag .gold { color: var(--gold); }
+    .splash-loader { position: absolute; bottom: 70px; width: 110px; height: 2px; background: var(--border); border-radius: 1px; overflow: hidden; animation: rise 0.7s 0.7s both; }
+    .splash-loader::after { content: ""; position: absolute; top:0; left:0; height:100%; width:40%; background: var(--text-gradient); border-radius: 1px; animation: loaderSlide 1.4s ease-in-out infinite; }
+    @keyframes loaderSlide { 0% { left:-40%; } 100% { left:100%; } }
+    @keyframes rise { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+
+    /* ====== App header ====== */
+    .app-header {
+      flex-shrink: 0; height: 56px; padding: 0 16px;
+      background: var(--bg); border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      position: relative; z-index: 20;
+    }
+    .header-brand { display: flex; align-items: center; gap: 8px; }
+    .header-logo { width: 26px; height: 23px; }
+    .header-name { font-size: 17px; font-weight: 800; letter-spacing: 0.01em; }
+    .header-name .c { background: var(--text-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .header-name .g { background: var(--gold-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .header-actions { display: flex; gap: 6px; }
+    .icon-btn {
+      position: relative; width: 32px; height: 32px;
+      border-radius: 9px; background: var(--bg-soft);
+      border: 1px solid var(--border); color: var(--text-muted);
+      display: grid; place-items: center; cursor: pointer;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .icon-btn:hover { color: var(--text); border-color: var(--text-faint); }
+    .icon-btn svg { width: 15px; height: 15px; }
+    .icon-btn .badge { position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 5px var(--gold); }
+
+    /* ====== Main content ====== */
+    .app-main {
+      flex: 1; overflow-y: auto; min-height: 0;
+      background: var(--bg); position: relative;
+      -webkit-overflow-scrolling: touch;
+    }
+    .app-main::-webkit-scrollbar { width: 0; }
+
+    .page { display: none; }
+    .page.active { display: block; animation: pageIn 0.25s ease both; }
+    @keyframes pageIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+
+    /* Content pages get padding */
+    #page-signals.active, #page-account.active, #page-plans.active {
+      padding: 14px 14px 92px;
+    }
+
+    /* Chart page fills entirely — leaves room for the bottom nav so the
+       time axis at the bottom of the chart is NOT clipped. */
+    #page-chart.active {
+      display: flex !important;
+      flex-direction: column;
+      height: 100%;
+      padding: 0 0 64px 0; /* 64px reserved for the bottom navigation bar */
+      overflow: hidden;
+    }
+
+    .page-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 14px; gap: 10px;
+    }
+    .page-title { font-size: 20px; font-weight: 800; letter-spacing: -0.01em; }
+    .page-subtitle { font-size: 11px; color: var(--text-faint); margin-top: 2px; }
+
+    /* ====== Chart page (BadiCharts library) ====== */
+    .chart-toolbar {
+      flex-shrink: 0;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 12px;
+      background: #131722;
+      border-bottom: 1px solid rgba(35, 44, 64, 0.5);
+      gap: 8px;
+      min-height: 44px;
+    }
+    .chart-toolbar-left {
+      display: flex; align-items: center; gap: 8px;
+      flex-shrink: 0;
+    }
+    .chart-symbol-label {
+      font-size: 12px; font-weight: 700; white-space: nowrap;
+    }
+    .live-pill {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 7px; border-radius: 100px;
+      background: rgba(32,201,151,0.15); color: var(--green);
+      font-size: 9px; font-weight: 700; letter-spacing: 0.05em;
+    }
+    .live-pill .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--green); box-shadow: 0 0 5px var(--green); animation: blink 1.6s infinite; }
+    @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+
+    .timeframe-row { display: flex; gap: 3px; flex-shrink: 0; }
+    .tf-btn {
+      padding: 3px 8px; font-size: 10px; font-weight: 700;
+      background: var(--bg-soft); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--text-muted); cursor: pointer;
+      font-family: inherit; transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .tf-btn:hover { color: var(--text); }
+    .tf-btn.active { background: var(--primary-soft); border-color: rgba(76,141,255,0.5); color: var(--primary); }
+
+    .chart-container {
+      flex: 1 1 auto; position: relative; background: #131722;
+      min-height: 0; overflow: hidden;
+    }
+    .chart-container canvas {
+      display: block; position: absolute; top: 0; left: 0;
+      width: 100% !important; height: 100% !important;
+    }
+    .chart-loading {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 10px; color: var(--text-faint); font-size: 12px;
+      background: #131722; z-index: 5;
+    }
+    .chart-loading .spinner {
+      width: 28px; height: 28px;
+      border: 2.5px solid var(--border);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .chart-loading.hidden { display: none; }
+    .chart-loading.error { color: var(--red); }
+    .chart-loading.error .spinner { display: none; }
+
+    /* ====== Signals page ====== */
+    .signal-filters { display: flex; gap: 5px; margin-bottom: 12px; overflow-x: auto; padding-bottom: 2px; }
+    .signal-filters::-webkit-scrollbar { display: none; }
+    .filter-chip {
+      padding: 5px 12px; border-radius: 100px;
+      background: var(--bg-soft); border: 1px solid var(--border);
+      color: var(--text-muted); font-size: 11px; font-weight: 600;
+      white-space: nowrap; cursor: pointer; font-family: inherit;
+    }
+    .filter-chip.active { background: var(--primary-soft); border-color: rgba(76,141,255,0.5); color: var(--primary); }
+
+    /* ====== History cards — professional signal history ====== */
+    .history-card {
+      position: relative;
+      background: linear-gradient(135deg, var(--card) 0%, var(--card-elev) 100%);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px;
+      margin-bottom: 12px;
+      transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+      cursor: pointer;
+      overflow: hidden;
+    }
+    .history-card::before {
+      content: "";
+      position: absolute;
+      top: -50%; right: -30%;
+      width: 180px; height: 180px;
+      background: radial-gradient(circle, rgba(76,141,255,0.06) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .history-card:hover {
+      border-color: rgba(76,141,255,0.5);
+      transform: translateY(-2px);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    }
+    .history-card.win {
+      border-color: rgba(32,201,151,0.35);
+    }
+    .history-card.win::before {
+      background: radial-gradient(circle, rgba(32,201,151,0.08) 0%, transparent 70%);
+    }
+    .history-card.loss {
+      border-color: rgba(255,93,108,0.35);
+    }
+    .history-card.loss::before {
+      background: radial-gradient(circle, rgba(255,93,108,0.08) 0%, transparent 70%);
+    }
+
+    /* Card header: direction badge + symbol + status */
+    .history-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 10px; margin-bottom: 12px; position: relative; z-index: 1;
+    }
+    .history-head-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .history-dir {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 5px 11px; border-radius: 9px;
+      font-weight: 800; font-size: 12px; letter-spacing: 0.02em;
+      flex-shrink: 0;
+    }
+    .history-dir.buy {
+      background: linear-gradient(135deg, rgba(32,201,151,0.22) 0%, rgba(32,201,151,0.08) 100%);
+      color: var(--green);
+      box-shadow: inset 0 0 0 1px rgba(32,201,151,0.25);
+    }
+    .history-dir.sell {
+      background: linear-gradient(135deg, rgba(255,93,108,0.22) 0%, rgba(255,93,108,0.08) 100%);
+      color: var(--red);
+      box-shadow: inset 0 0 0 1px rgba(255,93,108,0.25);
+    }
+    .history-dir svg {
+      width: 13px; height: 13px;
+    }
+    .history-symbol {
+      font-weight: 700; font-size: 14px; letter-spacing: 0.01em;
+    }
+    .history-status {
+      font-size: 10px; font-weight: 800; letter-spacing: 0.06em;
+      padding: 3px 9px; border-radius: 100px; text-transform: uppercase;
+      flex-shrink: 0;
+    }
+    .history-status.win { background: rgba(32,201,151,0.15); color: var(--green); }
+    .history-status.loss { background: rgba(255,93,108,0.15); color: var(--red); }
+
+    /* Card body: grid of issue time, end time, movement, open, close */
+    .history-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px 12px;
+      position: relative; z-index: 1;
+    }
+    .history-cell { min-width: 0; }
+    .history-cell .lbl {
+      font-size: 9px; color: var(--text-faint);
+      letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 3px;
+    }
+    .history-cell .val {
+      font-size: 12px; font-weight: 700; color: var(--text);
+      font-family: 'SF Mono', Consolas, monospace; letter-spacing: 0.01em;
+    }
+    .history-cell .val.up { color: var(--green); }
+    .history-cell .val.down { color: var(--red); }
+    .history-cell .val.muted { color: var(--text-muted); }
+
+    /* ====== Plans page ====== */
+    .current-plan-banner {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 14px; background: var(--card);
+      border: 1px solid var(--border); border-radius: 14px;
+      margin-bottom: 14px;
+    }
+    .current-plan-banner .icon {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: var(--gold-soft); display: grid; place-items: center;
+      color: var(--gold); flex-shrink: 0;
+    }
+    .current-plan-banner .icon svg { width: 18px; height: 18px; }
+    .current-plan-banner .info { flex: 1; }
+    .current-plan-banner .info .lbl { font-size: 10px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.04em; }
+    .current-plan-banner .info .val { font-size: 13px; font-weight: 700; margin-top: 1px; }
+    .current-plan-banner .renew { font-size: 10px; color: var(--text-faint); text-align: right; }
+
+    .plan-card {
+      position: relative; background: var(--card);
+      border: 1px solid var(--border); border-radius: 16px;
+      padding: 18px 16px 16px; margin-bottom: 12px;
+      transition: border-color 0.15s, transform 0.15s;
+    }
+    .plan-card:hover { transform: translateY(-1px); }
+    .plan-card.popular {
+      border-color: rgba(76,141,255,0.5);
+      box-shadow: 0 0 0 1px rgba(76,141,255,0.2), 0 8px 24px rgba(76,141,255,0.08);
+    }
+    .plan-card .tag {
+      position: absolute; top: -10px; right: 16px;
+      background: var(--brand-gradient); color: #fff;
+      font-size: 9px; font-weight: 700; padding: 3px 10px;
+      border-radius: 100px; letter-spacing: 0.05em;
+    }
+    .plan-name { font-size: 16px; font-weight: 800; margin-bottom: 3px; }
+    .plan-desc { font-size: 11px; color: var(--text-faint); margin-bottom: 12px; line-height: 1.4; }
+    .plan-price { display: flex; align-items: baseline; gap: 4px; margin-bottom: 14px; }
+    .plan-price .amt { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; }
+    .plan-price .per { font-size: 12px; color: var(--text-muted); }
+    .plan-features { list-style: none; display: flex; flex-direction: column; gap: 7px; margin-bottom: 16px; }
+    .plan-features li {
+      display: flex; gap: 8px; font-size: 12px;
+      color: var(--text-muted); line-height: 1.4;
+    }
+    .plan-features li::before {
+      content: "\2713"; color: var(--green); font-weight: 800;
+      flex-shrink: 0; font-size: 13px;
+    }
+    .plan-btn {
+      width: 100%; padding: 10px; background: var(--brand-gradient);
+      color: #fff; border: none; border-radius: 10px;
+      font-size: 13px; font-weight: 700; cursor: pointer;
+      font-family: inherit; box-shadow: 0 4px 12px rgba(76,141,255,0.25);
+      transition: filter 0.15s, transform 0.05s;
+    }
+    .plan-btn:hover { filter: brightness(1.1); }
+    .plan-btn:active { transform: translateY(1px); }
+    .plan-btn.current {
+      background: var(--bg-soft); color: var(--text-muted);
+      box-shadow: none; border: 1px solid var(--border); cursor: default;
+    }
+    .plan-btn.current:hover { filter: none; }
+
+    /* ====== Account page ====== */
+    .account-card {
+      position: relative; background: linear-gradient(135deg, var(--card) 0%, var(--card-elev) 100%);
+      border: 1px solid var(--border); border-radius: 18px;
+      padding: 20px 16px; margin-bottom: 12px; text-align: center; overflow: hidden;
+    }
+    .account-card::before {
+      content: ""; position: absolute; top: -50%; left: 50%; transform: translateX(-50%);
+      width: 200px; height: 200px;
+      background: radial-gradient(circle, rgba(255,215,0,0.10) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .avatar {
+      width: 70px; height: 70px; border-radius: 50%;
+      background: var(--gold-gradient); margin: 0 auto 12px;
+      display: grid; place-items: center; font-size: 26px; font-weight: 800;
+      color: #5a3a00; box-shadow: 0 8px 24px rgba(255,167,81,0.35);
+      position: relative; z-index: 1;
+    }
+    .account-name { font-size: 17px; font-weight: 800; margin-bottom: 3px; position: relative; z-index: 1; }
+    .account-email { font-size: 11px; color: var(--text-faint); margin-bottom: 12px; position: relative; z-index: 1; }
+    .plan-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 5px 12px; background: var(--gold-soft);
+      border: 1px solid rgba(255,215,0,0.3); border-radius: 100px;
+      font-size: 11px; font-weight: 700; color: var(--gold);
+      position: relative; z-index: 1;
+    }
+    .plan-badge svg { width: 11px; height: 11px; }
+    .account-stats {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px;
+      background: var(--border); border-radius: 14px; overflow: hidden;
+      margin-top: 14px; position: relative; z-index: 1;
+    }
+    .account-stats .cell { background: var(--card); padding: 10px 6px; text-align: center; }
+    .account-stats .cell .v { font-size: 14px; font-weight: 800; }
+    .account-stats .cell .l { font-size: 9px; color: var(--text-faint); letter-spacing: 0.04em; text-transform: uppercase; margin-top: 2px; }
+
+    /* ====== Subscription card (Visa-style) — clean, no glow ====== */
+    .sub-card {
+      position: relative;
+      border-radius: 18px;
+      padding: 18px;
+      margin-bottom: 16px;
+      overflow: hidden;
+      background: linear-gradient(135deg, #161c2c 0%, #131928 60%, #0f1320 100%);
+      border: 1px solid var(--border);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    }
+    .sub-card-head {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 18px; position: relative; z-index: 1;
+    }
+    .sub-card-brand {
+      display: flex; align-items: center; gap: 8px;
+    }
+    .sub-card-chip {
+      width: 28px; height: 22px;
+      border-radius: 5px;
+      background: linear-gradient(135deg, #FFE259 0%, #FFA751 100%);
+      box-shadow: inset 0 0 0 1px rgba(90,58,0,0.4);
+      position: relative;
+    }
+    .sub-card-chip::after {
+      content: "";
+      position: absolute; inset: 4px 5px;
+      border-left: 1px solid rgba(90,58,0,0.35);
+      border-right: 1px solid rgba(90,58,0,0.35);
+    }
+    .sub-card-label {
+      font-size: 9px; font-weight: 800; letter-spacing: 0.18em;
+      text-transform: uppercase; color: var(--text-faint);
+    }
+    .sub-card-plan {
+      font-size: 12px; font-weight: 800; letter-spacing: 0.04em;
+      background: var(--gold-gradient);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .sub-card-upgrade {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 6px 12px; border-radius: 100px;
+      background: var(--gold-gradient);
+      color: #5a3a00; font-size: 11px; font-weight: 800;
+      border: none; cursor: pointer; font-family: inherit;
+      transition: filter 0.15s, transform 0.05s;
+      flex-shrink: 0;
+    }
+    .sub-card-upgrade:hover { filter: brightness(1.1); }
+    .sub-card-upgrade:active { transform: translateY(1px); }
+    .sub-card-upgrade svg { width: 12px; height: 12px; }
+
+    .sub-card-balance {
+      position: relative; z-index: 1; margin-bottom: 18px;
+    }
+    .sub-card-balance .lbl {
+      font-size: 9px; font-weight: 700; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--text-faint); margin-bottom: 4px;
+    }
+    .sub-card-balance .amt {
+      font-size: 32px; font-weight: 800; letter-spacing: -0.02em;
+      color: var(--text);
+      font-family: 'SF Mono', Consolas, monospace;
+    }
+    .sub-card-balance .amt .cur {
+      font-size: 16px; color: var(--text-muted); margin-right: 4px;
+      font-family: -apple-system, sans-serif;
+    }
+    .sub-card-balance .used {
+      font-size: 10px; color: var(--text-faint); margin-top: 4px;
+      font-family: 'SF Mono', Consolas, monospace;
+    }
+    .sub-card-balance .used span { color: var(--gold); font-weight: 700; }
+
+    /* progress bar for usage */
+    .sub-progress {
+      position: relative; z-index: 1;
+      height: 5px; background: rgba(255,255,255,0.08);
+      border-radius: 3px; overflow: hidden; margin-bottom: 18px;
+    }
+    .sub-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #43D9FF 0%, #4C8DFF 50%, #FFD700 100%);
+      border-radius: 3px;
+      transition: width 0.4s ease;
+    }
+
+    .sub-card-foot {
+      display: flex; justify-content: space-between; align-items: flex-end;
+      gap: 12px; position: relative; z-index: 1;
+    }
+    .sub-card-foot .field { min-width: 0; }
+    .sub-card-foot .field .lbl {
+      font-size: 8px; font-weight: 700; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--text-faint); margin-bottom: 3px;
+    }
+    .sub-card-foot .field .val {
+      font-size: 12px; font-weight: 700; color: var(--text);
+      font-family: 'SF Mono', Consolas, monospace; letter-spacing: 0.02em;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .sub-card-foot .field .val.mono { letter-spacing: 0.1em; }
+    .sub-card-mastercard {
+      display: flex; align-items: center; gap: -8px; flex-shrink: 0;
+    }
+    .sub-card-mastercard .c1, .sub-card-mastercard .c2 {
+      width: 22px; height: 22px; border-radius: 50%;
+    }
+    .sub-card-mastercard .c1 { background: rgba(255,93,108,0.85); }
+    .sub-card-mastercard .c2 { background: rgba(255,167,81,0.85); margin-left: -8px; mix-blend-mode: screen; }
+
+    .menu-list {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 16px; overflow: hidden; margin-bottom: 12px;
+    }
+    .menu-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 14px; border-bottom: 1px solid var(--border-soft);
+      cursor: pointer; font-size: 13px; font-weight: 500;
+      transition: background 0.15s;
+    }
+    .menu-item:last-child { border-bottom: none; }
+    .menu-item:hover { background: var(--bg-soft); }
+    .menu-item svg.icon { width: 16px; height: 16px; color: var(--primary); flex-shrink: 0; }
+    .menu-item .arrow { margin-left: auto; color: var(--text-faint); width: 14px; height: 14px; }
+    .menu-item.danger { color: var(--red); }
+    .menu-item.danger svg.icon { color: var(--red); }
+
+    .switch-mini {
+      position: relative; width: 34px; height: 19px;
+      background: var(--border); border-radius: 10px; cursor: pointer;
+      transition: background 0.2s; flex-shrink: 0; margin-left: auto;
+    }
+    .switch-mini::after {
+      content: ""; position: absolute; top: 2px; left: 2px;
+      width: 15px; height: 15px; background: #fff; border-radius: 50%;
+      transition: transform 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+    .switch-mini.on { background: var(--brand-gradient); }
+    .switch-mini.on::after { transform: translateX(15px); }
+
+    /* ====== Bottom navigation (4 tabs) ====== */
+    .bottom-nav {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      background: rgba(10,13,20,0.94);
+      backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+      border-top: 1px solid var(--border);
+      display: flex; padding: 6px 6px 10px; z-index: 100;
+    }
+    .nav-tab {
+      flex: 1; background: transparent; border: none;
+      color: var(--text-faint); display: flex; flex-direction: column;
+      align-items: center; gap: 3px; padding: 7px 4px;
+      cursor: pointer; font-family: inherit; position: relative;
+      border-radius: 10px; transition: color 0.15s, background 0.15s;
+    }
+    .nav-tab svg { width: 18px; height: 18px; }
+    .nav-tab span { font-size: 9px; font-weight: 700; letter-spacing: 0.02em; }
+    .nav-tab:hover { color: var(--text-muted); }
+    .nav-tab.active { color: var(--primary); background: var(--primary-soft); }
+    .nav-tab.active::before {
+      content: ""; position: absolute; top: -6px; left: 50%; transform: translateX(-50%);
+      width: 28px; height: 2px; border-radius: 0 0 3px 3px; background: var(--brand-gradient);
+    }
+    .nav-tab .nav-badge {
+      position: absolute; top: 4px; right: calc(50% - 18px);
+      min-width: 14px; height: 14px; padding: 0 4px; border-radius: 100px;
+      background: var(--red); color: #fff;
+      font-size: 9px; font-weight: 800; display: none; place-items: center;
+      box-shadow: 0 2px 5px rgba(255,93,108,0.5);
+      transition: background 0.3s, color 0.3s, box-shadow 0.3s;
+    }
+    /* Show the badge only when new signals are available */
+    .nav-tab .nav-badge.visible { display: grid; }
+    /* When a signal is clicked, the badge turns gold (acknowledged) */
+    .nav-tab .nav-badge.acknowledged {
+      background: var(--gold-gradient);
+      color: #5a3a00;
+      box-shadow: 0 2px 8px rgba(255,215,0,0.6), 0 0 12px rgba(255,215,0,0.4);
+    }
+
+    /* home indicator removed — no phone frame */
+
+    /* ====== Activation key modal ====== */
+    .modal-back {
+      position: absolute; inset: 0; z-index: 9000;
+      display: none; align-items: center; justify-content: center;
+      background: rgba(5,7,11,0.7); backdrop-filter: blur(3px); padding: 20px;
+    }
+    .modal-back.open { display: flex; }
+    .modal-card {
+      width: 100%; max-width: 320px; background: var(--card);
+      border: 1px solid var(--border); border-radius: 16px; padding: 22px;
+      animation: modalIn 0.2s ease both;
+    }
+    @keyframes modalIn { from { opacity:0; transform:scale(0.95); } to { opacity:1; transform:scale(1); } }
+    .modal-card h3 { font-size: 17px; font-weight: 800; margin-bottom: 6px; }
+    .modal-card > p { font-size: 12px; color: var(--text-muted); margin-bottom: 14px; line-height: 1.5; }
+    .modal-input {
+      width: 100%; height: 40px; padding: 0 12px;
+      font-size: 13px; font-family: inherit; color: var(--text);
+      background: var(--bg-soft); border: 1px solid var(--border);
+      border-radius: 8px; outline: none; letter-spacing: 0.05em;
+      text-align: center;
+    }
+    .modal-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+    .modal-err { min-height: 16px; margin-top: 6px; font-size: 11px; color: var(--red); text-align: center; }
+    .modal-ok {
+      width: 44px; height: 44px; border-radius: 50%; margin: 0 auto 12px;
+      display: grid; place-items: center; font-size: 22px; font-weight: 800;
+      background: rgba(32,201,151,0.15); color: var(--green);
+    }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+    .btn-ghost {
+      background: var(--bg-soft); color: var(--text-muted);
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 8px 16px; font-size: 12px; font-weight: 600;
+      cursor: pointer; font-family: inherit;
+    }
+    .btn-ghost:hover { color: var(--text); }
+    .btn-primary-modal {
+      background: var(--brand-gradient); color: #fff; border: none;
+      border-radius: 8px; padding: 8px 16px; font-size: 12px; font-weight: 700;
+      cursor: pointer; font-family: inherit;
+    }
+  </style>
+</head>
+<body>
+
+<div class="phone">
+
+  <!-- ====== Splash ====== -->
+  <div class="splash" id="splash">
+    <div class="splash-brand">
+      <svg class="splash-logo" viewBox="-3 -3 68 60" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="BadiCharts">
+        <defs>
+          <linearGradient id="sp-cy" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="62" y2="54">
+            <stop offset="0" stop-color="#43D9FF"/><stop offset="1" stop-color="#4C8DFF"/>
+          </linearGradient>
+          <linearGradient id="sp-gd" gradientUnits="userSpaceOnUse" x1="24" y1="12" x2="40" y2="44">
+            <stop offset="0" stop-color="#FFE259"/><stop offset="1" stop-color="#FFA751"/>
+          </linearGradient>
+        </defs>
+        <g fill="none" stroke="url(#sp-cy)" stroke-width="5" stroke-linecap="round">
+          <path d="M10 14V46"/><path d="M10 21H2"/><path d="M10 39H18"/>
+          <path d="M32 12V0"/><path d="M32 44V54"/>
+          <path d="M54 22V54"/><path d="M54 29H46"/><path d="M54 47H62"/>
+        </g>
+        <rect x="24" y="12" width="16" height="32" rx="3" fill="url(#sp-gd)"/>
+      </svg>
+      <div class="splash-wordmark">Badi<span class="c">Charts</span></div>
+    </div>
+    <div class="splash-tag">XAUUSD <span class="gold">·</span> Terminal</div>
+    <div class="splash-loader"></div>
+  </div>
+
+  <!-- ====== App header ====== -->
+  <header class="app-header">
+    <div class="header-brand">
+      <svg class="header-logo" viewBox="-3 -3 68 60" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <defs>
+          <linearGradient id="hd-cy" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="62" y2="54">
+            <stop offset="0" stop-color="#43D9FF"/><stop offset="1" stop-color="#4C8DFF"/>
+          </linearGradient>
+          <linearGradient id="hd-gd" gradientUnits="userSpaceOnUse" x1="24" y1="12" x2="40" y2="44">
+            <stop offset="0" stop-color="#FFE259"/><stop offset="1" stop-color="#FFA751"/>
+          </linearGradient>
+        </defs>
+        <g fill="none" stroke="url(#hd-cy)" stroke-width="5" stroke-linecap="round">
+          <path d="M10 14V46"/><path d="M10 21H2"/><path d="M10 39H18"/>
+          <path d="M32 12V0"/><path d="M32 44V54"/>
+          <path d="M54 22V54"/><path d="M54 29H46"/><path d="M54 47H62"/>
+        </g>
+        <rect x="24" y="12" width="16" height="32" rx="3" fill="url(#hd-gd)"/>
+      </svg>
+      <span class="header-name">Badi<span class="c">Charts</span></span>
+    </div>
+    <div class="header-actions">
+      <button class="icon-btn" title="Notifications">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+        <span class="badge"></span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ====== Main content ====== -->
+  <main class="app-main">
+
+    <!-- ============ CHART PAGE (BadiCharts library only — no other cards) ============ -->
+    <div class="page active" id="page-chart">
+      <div class="chart-toolbar">
+        <div class="chart-toolbar-left">
+          <span class="chart-symbol-label">XAU/USD</span>
+          <span class="live-pill"><span class="dot"></span>LIVE</span>
+        </div>
+        <div class="timeframe-row">
+          <button class="tf-btn" data-tf="M1" data-ms="60000">M1</button>
+          <button class="tf-btn" data-tf="M5" data-ms="300000">M5</button>
+          <button class="tf-btn active" data-tf="M15" data-ms="900000">M15</button>
+          <button class="tf-btn" data-tf="H1" data-ms="3600000">H1</button>
+          <button class="tf-btn" data-tf="H4" data-ms="14400000">H4</button>
+        </div>
+      </div>
+      <div class="chart-container" id="chartContainer">
+        <div class="chart-loading" id="chartLoading">
+          <div class="spinner"></div>
+          <span>Loading chart...</span>
+        </div>
+        <canvas id="bgChartCanvas"></canvas>
+      </div>
+    </div>
+
+    <!-- ============ HISTORY PAGE ============ -->
+    <div class="page" id="page-signals">
+      <div class="page-header">
+        <div>
+          <div class="page-title">History</div>
+          <div class="page-subtitle">Closed XAU/USD signals record</div>
+        </div>
+      </div>
+
+      <!-- Card 1: BUY / WIN -->
+      <div class="history-card win" data-signal>
+        <div class="history-head">
+          <div class="history-head-left">
+            <span class="history-dir buy">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>
+              BUY
+            </span>
+            <span class="history-symbol">XAU/USD</span>
+          </div>
+          <span class="history-status win">Win</span>
+        </div>
+        <div class="history-grid">
+          <div class="history-cell">
+            <div class="lbl">Issued</div>
+            <div class="val">12:30:15</div>
+          </div>
+          <div class="history-cell">
+            <div class="lbl">Closed</div>
+            <div class="val">12:45:15</div>
+          </div>
+          <div class="history-cell">
+            <div class="lbl">Open price</div>
+            <div class="val muted">2,678.40</div>
+          </div>
+          <div class="history-cell">
+            <div class="lbl">Close price</div>
+            <div class="val up">2,684.30</div>
+          </div>
+          <div class="history-cell" style="grid-column: 1 / -1;">
+            <div class="lbl">Movement</div>
+            <div class="val up">+5.90 &nbsp;<span style="font-size:10px;color:var(--text-faint);">(+0.22%)</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 2: SELL / LOSS -->
+      <div class="history-card loss" data-signal>
+        <div class="history-head">
+          <div class="history-head-left">
+            <span class="history-dir sell">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7l10 10"/><path d="M17 8v9H8"/></svg>
+              SELL
+            </span>
+            <span class="history-symbol">XAU/USD</span>
+          </div>
+          <span class="history-status loss">Loss</span>
+        </div>
+        <div class="history-grid">
+          <div class="history-cell">
+            <div class="lbl">Issued</div>
+            <div class="val">11:00:42</div>
+          </div>
+          <div class="history-cell">
+            <div class="lbl">Closed</div>
+            <div class="val">11:15:42</div>
+          </div>
+          <div class="history-cell">
+            <div class="lbl">Open price</div>
+            <div class="val muted">2,691.20</div>
+          </div>
+          <div class="history-cell">
+            <div class="lbl">Close price</div>
+            <div class="val down">2,695.80</div>
+          </div>
+          <div class="history-cell" style="grid-column: 1 / -1;">
+            <div class="lbl">Movement</div>
+            <div class="val down">+4.60 &nbsp;<span style="font-size:10px;color:var(--text-faint);">(+0.17%)</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 3: BUY / WIN -->
+      <div class="history-card win" data-signal>
+        <div class="history-head">
+          <div class="history-head-left">
+            <span class="history-dir buy">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>
+              BUY
+            </span>
+            <span class="history-symbol">XAU/USD</span>
+          </div>
+          <span class="history-status win">Win</span>
+        </div>
+        <div class="history-grid">
+          <div class="history-cell">
+            <div class="lbl">Issued</div>
+            <div class="val">09:45:08</div>
+          </div>
+          <div class="history-cell">
+            <div class="lbl">Closed</div>
+            <div class="val">10:00:08</div>
+          </div>
+          <div class="history-cell">
+            <div class="lbl">Open price</div>
+            <div class="val muted">2,665.10</div>
+          </div>
+          <div class="history-cell">
+            <div class="lbl">Close price</div>
+            <div class="val up">2,672.50</div>
+          </div>
+          <div class="history-cell" style="grid-column: 1 / -1;">
+            <div class="lbl">Movement</div>
+            <div class="val up">+7.40 &nbsp;<span style="font-size:10px;color:var(--text-faint);">(+0.28%)</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ============ PLANS PAGE ============ -->
+    <div class="page" id="page-plans">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Plans</div>
+          <div class="page-subtitle">Choose a plan and activate with your key</div>
+        </div>
+      </div>
+
+      <!-- Current plan banner -->
+      <div class="current-plan-banner">
+        <div class="icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
+        </div>
+        <div class="info">
+          <div class="lbl">Current plan</div>
+          <div class="val" id="curPlanName">No active plan</div>
+        </div>
+        <div class="renew" id="curPlanRenew">&mdash;</div>
+      </div>
+
+      <!-- Starter -->
+      <div class="plan-card" data-plan="starter">
+        <div class="plan-name">Starter</div>
+        <div class="plan-desc">For traders getting started with XAUUSD signals.</div>
+        <div class="plan-price"><span class="amt">$10</span><span class="per">/ month</span></div>
+        <ul class="plan-features">
+          <li>Live XAUUSD signals (5s+ expiry)</li>
+          <li>Telegram bot &middot; 1 channel</li>
+          <li>Basic analysis tools</li>
+          <li>M15 &amp; H1 timeframes</li>
+          <li>Email support</li>
+        </ul>
+        <button class="plan-btn" data-plan="starter">Activate</button>
+      </div>
+
+      <!-- Pro (popular) -->
+      <div class="plan-card popular" data-plan="pro">
+        <span class="tag">Most popular</span>
+        <div class="plan-name">Pro</div>
+        <div class="plan-desc">Full signals and automation for active gold traders.</div>
+        <div class="plan-price"><span class="amt">$30</span><span class="per">/ month</span></div>
+        <ul class="plan-features">
+          <li>Live + future XAUUSD signals</li>
+          <li>Telegram bot &middot; 3 channels</li>
+          <li>Auto trading bot &middot; 1 account</li>
+          <li>All timeframes (M1&ndash;H4)</li>
+          <li>Advanced analysis tools</li>
+          <li>Priority support</li>
+        </ul>
+        <button class="plan-btn" data-plan="pro">Activate</button>
+      </div>
+
+      <!-- Elite -->
+      <div class="plan-card" data-plan="elite">
+        <div class="plan-name">Elite</div>
+        <div class="plan-desc">Everything unlocked for professional gold trading.</div>
+        <div class="plan-price"><span class="amt">$50</span><span class="per">/ month</span></div>
+        <ul class="plan-features">
+          <li>Everything in Pro</li>
+          <li>Unlimited Telegram channels</li>
+          <li>Auto trading bot &middot; unlimited accounts</li>
+          <li>JavaScript indicator editor + backtesting</li>
+          <li>Early access to new features</li>
+          <li>24/7 priority support</li>
+        </ul>
+        <button class="plan-btn" data-plan="elite">Activate</button>
+      </div>
+    </div>
+
+    <!-- ============ SETTINGS PAGE ============ -->
+    <div class="page" id="page-account">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Settings</div>
+          <div class="page-subtitle">Configure your BadiCharts terminal</div>
+        </div>
+      </div>
+
+      <!-- Subscription card (Visa-style) -->
+      <div class="sub-card">
+        <div class="sub-card-head">
+          <div class="sub-card-brand">
+            <div class="sub-card-chip"></div>
+            <div>
+              <div class="sub-card-label">BadiCharts</div>
+              <div class="sub-card-plan">Elite Plan</div>
+            </div>
+          </div>
+          <button class="sub-card-upgrade" id="upgradeBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>
+            Upgrade
+          </button>
+        </div>
+
+        <div class="sub-card-balance">
+          <div class="lbl">Balance</div>
+          <div class="amt"><span class="cur">$</span>50.00</div>
+          <div class="used"><span>$32.00</span> used &middot; $18.00 remaining</div>
+        </div>
+
+        <div class="sub-progress">
+          <div class="sub-progress-fill" style="width: 64%;"></div>
+        </div>
+
+        <div class="sub-card-foot">
+          <div class="field" style="flex:1;">
+            <div class="lbl">License Key</div>
+            <div class="val mono">ELITE-7K9F-2M4X-Q8RP</div>
+          </div>
+          <div class="field">
+            <div class="lbl">Expires</div>
+            <div class="val">12/05/26</div>
+          </div>
+          <div class="sub-card-mastercard">
+            <div class="c1"></div>
+            <div class="c2"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Other settings -->
+      <div class="menu-list">
+        <div class="menu-item" data-nav="plans">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
+          <span>Subscription &amp; Plans</span>
+          <span class="arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
+        </div>
+        <div class="menu-item">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>Export History</span>
+          <span class="arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
+        </div>
+        <div class="menu-item">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/><circle cx="12" cy="12" r="4"/></svg>
+          <span>Appearance</span>
+          <span class="arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
+        </div>
+        <div class="menu-item">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+          <span>Notifications</span>
+          <div class="switch-mini on"></div>
+        </div>
+        <div class="menu-item">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+          <span>Help &amp; Support</span>
+          <span class="arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
+        </div>
+        <div class="menu-item">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+          <span>About BadiCharts</span>
+          <span class="arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ====== Bottom navigation (4 tabs) ====== -->
+  <nav class="bottom-nav">
+    <button class="nav-tab active" data-page="chart">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 6-6"/></svg>
+      <span>Chart</span>
+    </button>
+    <button class="nav-tab" data-page="signals">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
+      <span>History</span>
+      <span class="nav-badge" id="historyBadge">3</span>
+    </button>
+    <button class="nav-tab" data-page="plans">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
+      <span>Plans</span>
+    </button>
+    <button class="nav-tab" data-page="account">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      <span>Settings</span>
+    </button>
+  </nav>
+
+  <!-- ====== Activation key modal ====== -->
+  <div class="modal-back" id="keyModal">
+    <div class="modal-card" id="keyModalCard">
+      <!-- Default: key input -->
+      <div id="keyForm">
+        <h3>Activate <span id="keyPlanName">Plan</span></h3>
+        <p>Enter the activation key you received to activate this plan.</p>
+        <input id="keyInput" class="modal-input" type="text" autocomplete="off" spellcheck="false" autocapitalize="characters" placeholder="XXXX-XXXX-XXXX-XXXX" />
+        <div class="modal-err" id="keyErr"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn-ghost" id="keyCancel">Cancel</button>
+          <button type="button" class="btn-primary-modal" id="keySubmit">Activate</button>
+        </div>
+      </div>
+      <!-- Success state (hidden by default) -->
+      <div id="keySuccess" style="display:none; text-align:center;">
+        <div class="modal-ok">&#10003;</div>
+        <h3>Plan activated</h3>
+        <p id="keySuccessMsg" style="text-align:center;"></p>
+        <div class="modal-actions" style="justify-content:center;">
+          <button type="button" class="btn-primary-modal" id="keyDone">Done</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ====== BadiCharts library (BADI-CHARTS-V2) ====== -->
+<script src="https://cdn.jsdelivr.net/gh/salahbadi19/BADI-CHARTS-V2@v2.2.0/chart.js"></script>
+
+<script>
+  /* ============================================================
+     Splash auto-dismiss
+     ============================================================ */
+  (function () {
+    const splash = document.getElementById('splash');
+    let closed = false;
+    function hide() {
+      if (closed) return;
+      closed = true;
+      splash.classList.add('hide');
+      setTimeout(() => splash.remove(), 700);
+    }
+    setTimeout(hide, 2600);
+    splash.addEventListener('click', hide);
+  })();
+
+  /* ============================================================
+     Bottom navigation + menu navigation
+     ============================================================ */
+  function switchPage(page) {
+    document.querySelectorAll('.nav-tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.page === page);
+    });
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    const target = document.getElementById('page-' + page);
+    if (target) target.classList.add('active');
+    document.querySelector('.app-main').scrollTop = 0;
+    // Trigger chart resize when switching to chart page
+    if (page === 'chart' && window.bgChart) {
+      setTimeout(resizeChart, 60);
+      setTimeout(resizeChart, 300);
+    }
+  }
+
+  document.querySelectorAll('.nav-tab').forEach(tab => {
+    tab.addEventListener('click', () => switchPage(tab.dataset.page));
+  });
+
+  // Menu items with data-nav attribute navigate to a page
+  document.querySelectorAll('.menu-item[data-nav]').forEach(item => {
+    item.addEventListener('click', () => switchPage(item.dataset.nav));
+  });
+
+  /* ============================================================
+     Toggle switches
+     ============================================================ */
+  document.querySelectorAll('.switch-mini').forEach(sw => {
+    sw.addEventListener('click', () => sw.classList.toggle('on'));
+  });
+
+  /* ============================================================
+     History badge — hidden by default, shown when a new signal arrives.
+     Clicking a card marks it as acknowledged (badge turns gold).
+     ============================================================ */
+  function showNewSignalBadge(count) {
+    const badge = document.getElementById('historyBadge');
+    if (!badge) return;
+    badge.textContent = String(count);
+    badge.classList.add('visible');
+    badge.classList.remove('acknowledged');
+  }
+  function hideSignalBadge() {
+    const badge = document.getElementById('historyBadge');
+    if (!badge) return;
+    badge.classList.remove('visible', 'acknowledged');
+  }
+
+  document.querySelectorAll('.history-card[data-signal]').forEach(card => {
+    card.addEventListener('click', () => {
+      const badge = document.getElementById('historyBadge');
+      if (badge && badge.classList.contains('visible')) {
+        badge.classList.add('acknowledged');
+      }
+      card.style.transform = 'translateY(-2px) scale(0.98)';
+      setTimeout(() => { card.style.transform = ''; }, 180);
+    });
+  });
+
+  // The badge is hidden by default. To show it, call showNewSignalBadge(count)
+  // when your backend notifies that a new signal has arrived.
+
+  /* ============================================================
+     Upgrade button — navigates to the Plans page
+     ============================================================ */
+  const upgradeBtn = document.getElementById('upgradeBtn');
+  if (upgradeBtn) {
+    upgradeBtn.addEventListener('click', () => switchPage('plans'));
+  }
+
+  /* ============================================================
+     Chart page — BadiCharts library integration
+     ============================================================ */
+  const chartLoading = document.getElementById('chartLoading');
+  let currentTF = { label: 'M15', ms: 900000 };
+
+  // Generate realistic XAUUSD candle data
+  function generateXAUCandles(count, timeframeMs) {
+    const candles = [];
+    const now = Math.floor(Date.now() / 1000);
+    const startTime = now - count * (timeframeMs / 1000);
+    let price = 2668;
+    for (let i = 0; i < count; i++) {
+      const time = startTime + i * (timeframeMs / 1000);
+      const open = price;
+      const trend = 0.08;
+      const noise = (Math.random() - 0.5) * 4.5;
+      const change = trend + noise;
+      const close = open + change;
+      const high = Math.max(open, close) + Math.random() * 1.8;
+      const low = Math.min(open, close) - Math.random() * 1.8;
+      const volume = Math.round(800 + Math.random() * 1800);
+      candles.push({
+        time: time,
+        open: +open.toFixed(2),
+        high: +high.toFixed(2),
+        low: +low.toFixed(2),
+        close: +close.toFixed(2),
+        volume: volume
+      });
+      price = close;
+    }
+    return candles;
+  }
+
+  function forceChartRedraw(c) {
+    if (!c) return;
+    c.dirty = c._dirty = c.needsRedraw = c.needsRender = true;
+    const names = ['requestRender', 'requestDraw', 'scheduleDraw', 'markDirty', 'draw', 'render', 'redraw'];
+    for (let i = 0; i < names.length; i++) {
+      if (typeof c[names[i]] === 'function') { try { c[names[i]](); } catch (e) {} break; }
+    }
+  }
+
+  function resizeChart() {
+    const c = window.bgChart;
+    if (!c) return;
+    if (typeof c._containerResize === 'function') {
+      try { c._containerResize(); } catch (e) {}
+    } else if (typeof c.updateLayout === 'function') {
+      try { c.updateLayout(); } catch (e) {}
+    }
+    forceChartRedraw(c);
+  }
+
+  function initBadiChart() {
+    const canvas = document.getElementById('bgChartCanvas');
+    if (!canvas) return;
+
+    // Check if library loaded
+    if (typeof BadiCharts === 'undefined') {
+      chartLoading.classList.add('error');
+      chartLoading.innerHTML = '<span>Failed to load chart library.<br>Check your internet connection.</span>';
+      return;
+    }
+
+    try {
+      // Create chart instance
+      window.bgChart = new BadiCharts(canvas, {
+        symbol: { label: 'XAU/USD', priceScale: 100, decimals: 2 },
+        timeframe: { label: currentTF.label, ms: currentTF.ms },
+        indicators: []
+      });
+
+      // Start the chart
+      window.bgChart.start();
+
+      // Generate and load XAUUSD data
+      const candles = generateXAUCandles(200, currentTF.ms);
+      window.bgChart.setData(candles);
+
+      // Add indicators
+      window.bgChart.addIndicator('volume');
+      window.bgChart.addIndicator('ma20');
+      window.bgChart.addIndicator('ma50');
+
+      // Hide loading indicator
+      chartLoading.classList.add('hidden');
+
+      // Initial resize after a short delay (let layout settle)
+      setTimeout(resizeChart, 100);
+      setTimeout(resizeChart, 400);
+
+      // ResizeObserver on chart container — keeps canvas in sync with its box
+      const container = document.getElementById('chartContainer');
+      if (container && window.ResizeObserver) {
+        const ro = new ResizeObserver(() => {
+          // Debounce via requestAnimationFrame
+          if (window._bgResizeRaf) cancelAnimationFrame(window._bgResizeRaf);
+          window._bgResizeRaf = requestAnimationFrame(resizeChart);
+        });
+        ro.observe(container);
+      }
+      // Window resize fallback
+      window.addEventListener('resize', resizeChart);
+      window.addEventListener('orientationchange', () => setTimeout(resizeChart, 200));
+    } catch (err) {
+      console.error('Chart init error:', err);
+      chartLoading.classList.add('error');
+      chartLoading.innerHTML = '<span>Chart initialization error: ' + (err.message || err) + '</span>';
+    }
+  }
+
+  // Initialize chart after DOM is ready AND splash has started (so the chart page has real dimensions)
+  function bootChart() {
+    // Defer until the chart page is visible (splash auto-hides after 2.6s, but we can start sooner)
+    setTimeout(initBadiChart, 300);
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootChart);
+  } else {
+    bootChart();
+  }
+
+  // Timeframe buttons
+  document.querySelectorAll('.tf-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const tf = btn.dataset.tf;
+      const ms = parseInt(btn.dataset.ms, 10);
+      currentTF = { label: tf, ms: ms };
+      // Update chart timeframe and regenerate data
+      if (window.bgChart) {
+        try {
+          window.bgChart.setTimeframe({ label: tf, ms: ms });
+          const candles = generateXAUCandles(200, ms);
+          window.bgChart.setData(candles);
+        } catch (e) { console.error('TF change error:', e); }
+      }
+    });
+  });
+
+  /* ============================================================
+     Plans page — activation by key
+     ============================================================ */
+  (function () {
+    const PLANS = {
+      starter: { name: 'Starter', price: 10 },
+      pro:     { name: 'Pro',     price: 30 },
+      elite:   { name: 'Elite',   price: 50 }
+    };
+    let current = 'elite'; // demo: user already has Elite
+    let pending = null;
+
+    const page       = document.getElementById('page-plans');
+    const nameEl     = document.getElementById('curPlanName');
+    const renewEl    = document.getElementById('curPlanRenew');
+    const keyModal   = document.getElementById('keyModal');
+    const keyForm    = document.getElementById('keyForm');
+    const keySuccess = document.getElementById('keySuccess');
+    const keyInput   = document.getElementById('keyInput');
+    const keyErr     = document.getElementById('keyErr');
+    const keyBtn     = document.getElementById('keySubmit');
+
+    function renewDate() {
+      const d = new Date(); d.setMonth(d.getMonth() + 1);
+      return d.toISOString().slice(0, 10);
+    }
+
+    function render() {
+      page.querySelectorAll('.plan-card').forEach(card => {
+        const id = card.dataset.plan, isCur = id === current;
+        const btn = card.querySelector('.plan-btn');
+        card.classList.toggle('popular', id === 'pro'); // Pro always shows badge
+        btn.classList.toggle('current', isCur);
+        btn.textContent = isCur ? 'Current plan' : 'Activate';
+        btn.disabled = isCur;
+      });
+      nameEl.textContent = current ? PLANS[current].name + ' - $' + PLANS[current].price + ' / month' : 'No active plan';
+      renewEl.textContent = current ? renewDate() : '\u2014';
+    }
+
+    // Click "Activate"
+    page.addEventListener('click', (e) => {
+      const btn = e.target.closest('.plan-btn');
+      if (!btn || btn.disabled) return;
+      pending = btn.dataset.plan;
+      document.getElementById('keyPlanName').textContent = PLANS[pending].name;
+      keyInput.value = ''; keyErr.textContent = '';
+      keyForm.style.display = '';
+      keySuccess.style.display = 'none';
+      keyModal.classList.add('open');
+      setTimeout(() => keyInput.focus(), 50);
+    });
+
+    // Submit key (demo: accept keys like PRO-XXXX-XXXX-XXXX)
+    function submitKey() {
+      const key = keyInput.value.trim().toUpperCase();
+      if (!key) { keyErr.textContent = 'Please enter your activation key.'; return; }
+      keyBtn.disabled = true; keyBtn.textContent = 'Checking...'; keyErr.textContent = '';
+      setTimeout(() => {
+        const valid = key.startsWith(pending.toUpperCase() + '-') && key.length >= 12;
+        if (valid) {
+          current = pending;
+          keyForm.style.display = 'none';
+          keySuccess.style.display = '';
+          document.getElementById('keySuccessMsg').textContent = PLANS[current].name + ' plan is now active.';
+          render();
+        } else {
+          keyErr.textContent = 'Invalid or already used activation key.';
+          keyBtn.disabled = false; keyBtn.textContent = 'Activate';
+        }
+      }, 600);
+    }
+    keyBtn.addEventListener('click', submitKey);
+    keyInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submitKey(); } });
+    document.getElementById('keyCancel').addEventListener('click', () => keyModal.classList.remove('open'));
+    document.getElementById('keyDone').addEventListener('click', () => keyModal.classList.remove('open'));
+
+    // Close on Escape / backdrop click
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') keyModal.classList.remove('open');
+    });
+    keyModal.addEventListener('mousedown', (e) => { if (e.target === keyModal) keyModal.classList.remove('open'); });
+
+    render();
+  })();
+</script>
+
+</body>
+</html>
