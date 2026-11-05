@@ -731,8 +731,30 @@
       40%  { transform: scaleY(1.25); }
       100% { transform: scaleY(1); }
     }
+    /* ====== Analysis states: idle -> analyzing (dots) -> done (check) -> idle ====== */
+    .fab-dots { display: none; align-items: center; gap: 5px; }
+    .fab-dots i {
+      width: 6px; height: 6px; border-radius: 50%; background: #fff; display: block;
+      animation: fabDot 1s ease-in-out infinite;
+    }
+    .fab-dots i:nth-child(2) { animation-delay: 0.15s; }
+    .fab-dots i:nth-child(3) { animation-delay: 0.3s; }
+    @keyframes fabDot {
+      0%, 80%, 100% { transform: translateY(0) scale(0.7); opacity: 0.45; }
+      40%           { transform: translateY(-4px) scale(1); opacity: 1; }
+    }
+    .fab-check { display: none; }
+
+    .analysis-fab.analyzing { cursor: default; }
+    .analysis-fab.analyzing .fab-icon { display: none; }
+    .analysis-fab.analyzing .fab-dots { display: flex; animation: fabSwap 0.3s ease-out both; }
+    .analysis-fab.done .fab-icon { display: none; }
+    .analysis-fab.done .fab-check { display: block; }
+    @keyframes fabSwap { from { opacity: 0; transform: scale(0.6); } to { opacity: 1; transform: scale(1); } }
+
     @media (prefers-reduced-motion: reduce) {
-      .analysis-fab.visible, .analysis-fab.visible svg, .analysis-fab.visible svg rect { animation: none; }
+      .analysis-fab.visible, .analysis-fab.visible svg, .analysis-fab.visible svg rect,
+      .fab-dots i, .analysis-fab.analyzing .fab-dots { animation: none; }
     }
 
     /* home indicator removed — no phone frame */
@@ -1177,7 +1199,7 @@
   <!-- ====== Analysis button (arch shape with logo+search icon, only on Chart page) ====== -->
   <button class="analysis-fab" id="analysisFab" title="Analysis">
     <!-- Candlestick logo (white with gold middle) inside a magnifier outline -->
-    <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <svg class="fab-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <!-- Magnifier lens circle (outline) -->
       <circle cx="20" cy="20" r="16" fill="none" stroke="#ffffff" stroke-width="2.5"/>
       <!-- Magnifier handle -->
@@ -1196,6 +1218,10 @@
       <!-- Middle candle body (gold) -->
       <rect x="17" y="13" width="6" height="15" rx="1.2" fill="#FFD700"/>
     </svg>
+    <!-- Analyzing state: three pulsing dots -->
+    <span class="fab-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+    <!-- Done state: check mark -->
+    <svg class="fab-check" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
   </button>
 
   <!-- ====== Activation key modal ====== -->
@@ -1438,6 +1464,41 @@
     // Mouse drag (desktop / PyWebView)
     area.addEventListener('mousedown', (e) => start(e.clientX, e.clientY, e.target));
     window.addEventListener('mouseup', (e) => end(e.clientX, e.clientY));
+  })();
+
+  /* ============================================================
+     Analysis button — idle -> analyzing (dots) -> done (check) -> idle
+     Call startAnalysis() / finishAnalysis() from your real analysis logic.
+     For now a demo timer finishes it after ANALYSIS_DEMO_MS.
+     ============================================================ */
+  (function () {
+    const ANALYSIS_DEMO_MS = 3000;
+    const fab = document.getElementById('analysisFab');
+    if (!fab) return;
+    let busy = false;
+
+    window.startAnalysis = function () {
+      if (busy) return false;
+      busy = true;
+      fab.classList.remove('done');
+      fab.classList.add('analyzing');
+      return true;
+    };
+    window.finishAnalysis = function () {
+      if (!busy) return;
+      fab.classList.remove('analyzing');
+      fab.classList.add('done');
+      setTimeout(() => {
+        fab.classList.remove('done');
+        busy = false;
+      }, 1000);
+    };
+
+    fab.addEventListener('click', () => {
+      if (!window.startAnalysis()) return;
+      // DEMO: replace this timer with your real analysis; call finishAnalysis() when it ends
+      setTimeout(window.finishAnalysis, ANALYSIS_DEMO_MS);
+    });
   })();
 
   /* ============================================================
