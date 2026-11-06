@@ -1836,7 +1836,7 @@
           }
           const p = d.progress != null ? d.progress : 1;
           const barMaxW = 68;
-          const xStart = helpers.indexToX(d.fromIdx);       // FIXED start — anchored to the fromIdx candle, not floating
+          const xStart = helpers.indexToX(Math.max(d.fromIdx, d.toIdx - 12));  // anchored near the last candle — close to the trade
           const upCol = '#20c997', dnCol = '#ff5d6c';
 
           ctx.save();
@@ -2007,6 +2007,52 @@
         onHitTest: function () { return false; }
       });
 
+      // Order Block tool — rectangle covering the OB candle's high-low range,
+      // extended to the right. Green for bullish OB, red dashed for bearish OB.
+      c.addDrawingTool({
+        id: 'orderBlock',
+        label: 'Order Block',
+        icon: 'OB',
+        onDraw: function (ctx, d, helpers) {
+          const x1 = helpers.indexToX(d.idx);
+          const x2full = helpers.chartRight + 10;
+          const yH = helpers.priceToY(d.high);
+          const yL = helpers.priceToY(d.low);
+          const p = d.progress != null ? d.progress : 1;
+          const x2 = x1 + (x2full - x1) * p;
+          const col = d.color;
+          const w = x2 - x1, h = Math.abs(yL - yH);
+          if (w <= 0 || h <= 0) return;
+
+          ctx.save();
+          ctx.fillStyle = hexToRgba(col, 0.15);
+          ctx.fillRect(x1, Math.min(yH, yL), w, h);
+          ctx.strokeStyle = col; ctx.lineWidth = 1.2;
+          if (d.obType === 'bear') ctx.setLineDash([4, 2]);
+          ctx.strokeRect(x1, Math.min(yH, yL), w, h);
+          ctx.setLineDash([]);
+          if (d.label > 0 && p > 0.6) {
+            ctx.globalAlpha = d.label;
+            ctx.font = '700 9px -apple-system, "Segoe UI", Roboto, sans-serif';
+            const txt = d.obType === 'bull' ? 'Bull OB' : 'Bear OB';
+            const tw = ctx.measureText(txt).width + 8;
+            ctx.fillStyle = col;
+            if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(x1 + 2, Math.min(yH, yL) + 2, tw, 13, 3); ctx.fill(); }
+            else ctx.fillRect(x1 + 2, Math.min(yH, yL) + 2, tw, 13);
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+            ctx.fillText(txt, x1 + 6, Math.min(yH, yL) + 3);
+          }
+          ctx.restore();
+        },
+        onHitTest: function (d, x, y, helpers) {
+          const x1 = helpers.indexToX(d.idx);
+          if (x < x1 || x > helpers.chartRight + 10) return false;
+          const yH = helpers.priceToY(d.high), yL = helpers.priceToY(d.low);
+          return y >= Math.min(yH, yL) && y <= Math.max(yH, yL);
+        }
+      });
+
       toolRegistered = true;
     }
 
@@ -2051,6 +2097,17 @@
       const bs = Math.min(c.maxBarSpacing, ZOOM_IN_SPACING);
       const xc = (c.chartLeft + c.chartRight) / 2;
       return { bs, ro: (c.chartRight - xc) / bs - (N - 1 - idx) };
+    }
+    // Fit the view so an entire range (fromIdx → toIdx) is visible — used for Volume Profile
+    function fitRangeCamera(c, fromIdx, toIdx) {
+      const N = c.sim.candles.length;
+      const span = Math.max(10, toIdx - fromIdx + 12);
+      const width = c.chartRight - c.chartLeft;
+      const bs = Math.max(c.minBarSpacing, width / span);
+      const centerIdx = (fromIdx + toIdx) / 2;
+      const xc = (c.chartLeft + c.chartRight) / 2;
+      const ro = (c.chartRight - xc) / bs - (N - 1 - centerIdx);
+      return { bs: bs, ro: ro };
     }
 
     /* ---------- S/R detection (good levels, PIVOT_K sliding window) ---------- */
@@ -2184,15 +2241,42 @@
       return events.slice(-LIQ_MAX);
     }
 
-    /* ---------- Volume Profile range — ONE large area around the strongest S/R level ---------- */
+    /* ---------- Order Block detection (SMC) — precise, no overlap ----------
+       Bullish OB = the IMMEDIATE bearish candle before a strong bullish displacement.
+       Bearish OB = the IMMEDIATE bullish candle before a strong bearish displacement.
+       Only checks the candle directly before the displacement (not up to 3 back).
+       Enforces a minimum gap between OBs so they never overlap. */
+    function findOrderBlocks(c) {
+      const cs = c.sim.candles, N = cs.length;
+      const minDisp = 4.0;     // minimum body of the displacement candle
+      const minGap = 8;        // minimum candles between OBs (prevents overlap)
+      const obs = [];
+      for (let i = 5; i < N - 1; i++) {
+        const body = Math.abs(cs[i].close - cs[i].open);
+        if (body < minDisp) continue;
+        const bullDisp = cs[i].close > cs[i].open;
+        const prev = cs[i - 1];                            // only the immediate previous candle
+        if (bullDisp && prev.close < prev.open) {
+          if (obs.length === 0 || (i - 1) - obs[obs.length - 1].idx >= minGap) {
+            obs.push({ idx: i - 1, type: 'bull', high: prev.high, low: prev.low });
+          }
+        }
+        if (!bullDisp && prev.close > prev.open) {
+          if (obs.length === 0 || (i - 1) - obs[obs.length - 1].idx >= minGap) {
+            obs.push({ idx: i - 1, type: 'bear', high: prev.high, low: prev.low });
+          }
+        }
+      }
+      return obs.slice(-3);                                  // most recent 3
+    }
+
+    /* ---------- Volume Profile range — RECENT candles near where the trade is placed ----------
+       Uses the last ~50 candles so the VP is visually near the trade signal (last candle). */
     function findVolProfileRanges(c, levels) {
-      if (!levels || levels.length === 0) return [];
       const N = c.sim.candles.length;
-      const all = levels.slice().sort(function (a, b) { return (b.strength || 0) - (a.strength || 0); });
-      if (all.length === 0) return [];
-      const strongest = all[0];
-      const half = 60;                                   // large area around the level
-      return [{ fromIdx: Math.max(0, strongest.idx - 30), toIdx: N - 1 }];   // from the important area to the LAST candle
+      if (N < 30) return [];
+      const start = Math.max(0, N - 50);                  // recent 50 candles — includes the trade
+      return [{ fromIdx: start, toIdx: N - 1 }];
     }
 
     /* ---------- Trade setup — REAL analysis-based trade ----------
@@ -2417,10 +2501,9 @@
       const vpRanges = findVolProfileRanges(c, levels);
       for (const vp of vpRanges) {
         if (!alive()) return 'aborted';
-        // Go directly to the VP area (no zoom-out first — view stays here during drawing)
-        const centerIdx = Math.floor((vp.fromIdx + vp.toIdx) / 2);
-        const f = focusCamera(c, centerIdx);
-        await cameraTo(f.bs, f.ro, T.in, my);
+        // Zoom OUT to fit the entire VP range so all bars are visible during drawing
+        const fitCam = fitRangeCamera(c, vp.fromIdx, vp.toIdx);
+        await cameraTo(fitCam.bs, fitCam.ro, T.in, my);
         if (!alive()) return 'aborted';
         await wait(300, my);
         if (!alive()) return 'aborted';
@@ -2438,7 +2521,47 @@
         await wait(T.lineHold, my);
       }
 
-      // ====== Phase 5: Trade Signal — Entry + SL + TP1/2/3 on the last candle ======
+      // ====== Phase 5: Order Blocks — last opposite candle before a displacement move ======
+      if (!alive()) return 'aborted';
+      const obs = findOrderBlocks(c);
+      for (const ob of obs) {
+        if (!alive()) return 'aborted';
+        const col = ob.type === 'bull' ? '#20c997' : '#ff5d6c';
+        const ov = overviewCamera(c);
+        await cameraTo(ov.bs, ov.ro, T.out, my);
+        if (!alive()) return 'aborted';
+        const f = focusCamera(c, ob.idx);
+        await cameraTo(f.bs, f.ro, T.in, my);
+        if (!alive()) return 'aborted';
+        await wait(300, my);
+        if (!alive()) return 'aborted';
+        const m = {
+          type: 'orderBlock',
+          idx: ob.idx,
+          obType: ob.type,
+          high: ob.high,
+          low: ob.low,
+          color: col,
+          progress: 0,
+          label: 0
+        };
+        c.addDrawing(m);
+        const focusBs = c.barSpacing;
+        const xc = (c.chartLeft + c.chartRight) / 2;
+        const panStart = ob.idx, panEnd = N - 1;
+        await tween(T.line, function (t) {
+          const e = ease(t);
+          m.progress = e;
+          const leadIdx = panStart + (panEnd - panStart) * e;
+          c.barSpacing = focusBs;
+          c.rightOffset = (c.chartRight - xc) / focusBs - (N - 1 - leadIdx);
+          applyCamera(c);
+        }, my);
+        await tween(T.label, (t) => { m.label = ease(t); }, my);
+        await wait(T.lineHold, my);
+      }
+
+      // ====== Phase 6: Trade Signal — Entry + SL + TP1/2/3 on the last candle ======
       if (!alive()) return 'aborted';
       const setup = calculateTradeSetup(msEvents, levels, c.sim.candles);
       const lastIdx = c.sim.candles.length - 1;
