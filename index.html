@@ -1986,8 +1986,12 @@
         const f = focusCamera(c, fvg.idx + 1);
         await cameraTo(f.bs, f.ro, T.in, my);
         if (!alive()) return 'aborted';
+        // 2.5) brief settle pause — let the user see the FVG area before drawing starts
+        await wait(400, my);
+        if (!alive()) return 'aborted';
         // 3) draw the rectangle progressively AND pan the chart to follow the leading edge.
-        // The view scrolls along with the drawing tip until the rectangle reaches its end.
+        // The pan starts exactly where the zoom-in ended (fvg.idx + 1) so there is no jump —
+        // the view then scrolls smoothly to the right as the rectangle extends to endIdx.
         const m = {
           type: 'fvgRect',
           idx: fvg.idx,
@@ -2005,14 +2009,16 @@
         // Keep the zoom level fixed; only pan rightOffset so the leading edge stays in view.
         const focusBs = c.barSpacing;
         const xc = (c.chartLeft + c.chartRight) / 2;
+        // Start the pan from fvg.idx + 1 (the zoom-in target) so the transition is seamless.
+        const panStartIdx = fvg.idx + 1;
         await tween(T.fvg, function (t) {
           const e = ease(t);
           m.progress = e;
-          // Leading edge candle index moves from formation → endIdx
-          const leadIdx = fvg.idx + (endIdx - fvg.idx) * e;
-          // Pan so the leading edge is centered on screen
+          // Leading edge moves smoothly from the formation center to endIdx
+          const leadIdx = panStartIdx + (endIdx - panStartIdx) * e;
+          // Pan so the leading edge is centered — use float (no rounding) for smooth motion
           c.barSpacing = focusBs;
-          c.rightOffset = (c.chartRight - xc) / focusBs - (N - 1 - Math.round(leadIdx));
+          c.rightOffset = (c.chartRight - xc) / focusBs - (N - 1 - leadIdx);
           applyCamera(c);
         }, my);
         await tween(T.label, (t) => { m.label = ease(t); }, my);
