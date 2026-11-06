@@ -1836,7 +1836,7 @@
           }
           const p = d.progress != null ? d.progress : 1;
           const barMaxW = 68;
-          const xStart = helpers.chartLeft + 4;               // bars start from left edge, always visible
+          const xStart = helpers.indexToX(d.fromIdx);       // FIXED start — anchored to the fromIdx candle, not floating
           const upCol = '#20c997', dnCol = '#ff5d6c';
 
           ctx.save();
@@ -2195,7 +2195,11 @@
       return [{ fromIdx: Math.max(0, strongest.idx - 30), toIdx: N - 1 }];   // from the important area to the LAST candle
     }
 
-    /* ---------- Trade setup — direction + Entry + SL + TP1/2/3 ---------- */
+    /* ---------- Trade setup — REAL analysis-based trade ----------
+       Direction: MS events + price vs S/R.
+       Entry: actual last close.
+       SL: actual nearest swing high/low (tight, capped at $15).
+       TP: actual S/R levels above (buy) / below (sell) entry — falls back to R multiples. */
     function calculateTradeSetup(msEvents, levels, candles) {
       let bull = 0, bear = 0;
       for (const ev of msEvents) {
@@ -2205,39 +2209,48 @@
         const last = msEvents[msEvents.length - 1];
         if (last.direction === 'bullish') bull += 2; else bear += 2;
       }
-      if (candles.length > 0) {
-        const lastClose = candles[candles.length - 1].close;
-        const resL = levels.filter(function (l) { return l.type === 'res'; });
-        const supL = levels.filter(function (l) { return l.type === 'sup'; });
-        if (resL.length && lastClose > resL[resL.length - 1].price) bull++;
-        if (supL.length && lastClose < supL[supL.length - 1].price) bear++;
-      }
-      const direction = bull >= bear ? 'buy' : 'sell';
       const lastClose = candles[candles.length - 1].close;
       const N = candles.length;
-      const lookback = Math.min(8, N);
+      // S/R levels for direction + TP
+      const resLevels = levels.filter(function (l) { return l.type === 'res'; }).sort(function (a, b) { return a.price - b.price; });
+      const supLevels = levels.filter(function (l) { return l.type === 'sup'; }).sort(function (a, b) { return b.price - a.price; });
+      // Price vs S/R for direction
+      if (resLevels.length && lastClose > resLevels[resLevels.length - 1].price) bull++;
+      if (supLevels.length && lastClose < supLevels[supLevels.length - 1].price) bear++;
+      const direction = bull >= bear ? 'buy' : 'sell';
+      const entry = lastClose;
+      // SL: actual nearest swing (tight, capped at $15)
+      const lookback = Math.min(10, N);
       let rHigh = -Infinity, rLow = Infinity;
       for (let i = N - lookback; i < N; i++) {
         if (candles[i].high > rHigh) rHigh = candles[i].high;
         if (candles[i].low < rLow) rLow = candles[i].low;
       }
-      // Tight stop: small buffer + capped risk so the SL zone is small
       const buffer = Math.max(0.3, (rHigh - rLow) * 0.05);
-      const maxRisk = 15;                                    // cap risk at $15 for gold
-      let stopLoss, risk;
+      const maxRisk = 15;
+      let stopLoss;
       if (direction === 'buy') {
         stopLoss = rLow - buffer;
-        risk = Math.max(1, Math.min(lastClose - stopLoss, maxRisk));
-        stopLoss = lastClose - risk;                         // recalculate SL from capped risk
+        if (entry - stopLoss > maxRisk) stopLoss = entry - maxRisk;
       } else {
         stopLoss = rHigh + buffer;
-        risk = Math.max(1, Math.min(stopLoss - lastClose, maxRisk));
-        stopLoss = lastClose + risk;
+        if (stopLoss - entry > maxRisk) stopLoss = entry + maxRisk;
       }
-      const tp1 = direction === 'buy' ? lastClose + 2 * risk : lastClose - 2 * risk;
-      const tp2 = direction === 'buy' ? lastClose + 3 * risk : lastClose - 3 * risk;
-      const tp3 = direction === 'buy' ? lastClose + 5 * risk : lastClose - 5 * risk;
-      return { direction: direction, entry: lastClose, stopLoss: stopLoss, tp1: tp1, tp2: tp2, tp3: tp3 };
+      const risk = Math.max(1, Math.abs(entry - stopLoss));
+      // TP: actual S/R levels — real targets based on market structure
+      let tp1, tp2, tp3;
+      if (direction === 'buy') {
+        const above = resLevels.filter(function (l) { return l.price > entry; }).sort(function (a, b) { return a.price - b.price; });
+        tp1 = above.length > 0 ? above[0].price : entry + 2 * risk;
+        tp2 = above.length > 1 ? above[1].price : entry + 3 * risk;
+        tp3 = above.length > 2 ? above[2].price : entry + 5 * risk;
+      } else {
+        const below = supLevels.filter(function (l) { return l.price < entry; }).sort(function (a, b) { return b.price - a.price; });
+        tp1 = below.length > 0 ? below[0].price : entry - 2 * risk;
+        tp2 = below.length > 1 ? below[1].price : entry - 3 * risk;
+        tp3 = below.length > 2 ? below[2].price : entry - 5 * risk;
+      }
+      return { direction: direction, entry: entry, stopLoss: stopLoss, tp1: tp1, tp2: tp2, tp3: tp3 };
     }
 
     /* ---------- public API ---------- */
