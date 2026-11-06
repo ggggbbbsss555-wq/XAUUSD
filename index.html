@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ar" dir="ltr" data-theme="dark">
 <head>
@@ -1544,19 +1545,20 @@
      All drawings are native library drawings (no overlay, no glow).
      ============================================================ */
   (function () {
-    const LEVELS_PER_SIDE = 2;     // 2 resistances + 2 supports = 4 levels
+    const LEVELS_PER_SIDE = 3;     // 3 resistances + 3 supports = 6 levels (more S/R)
     const PIVOT_K         = 6;     // bars on each side that must be lower/higher
     const ZOOM_IN_SPACING = 26;    // barSpacing when focusing on a level
     const ZOOM_OUT_FACTOR = 0.6;   // slight zoom out (60% of current spacing)
     const BANNER_MS       = 6000;  // banner auto-hide after 6 seconds
-    const T = { out: 700, in: 1100, circle: 1600, dot: 240, label: 300, hold: 400, fvg: 1100, fvgHold: 350 };
+    const T = { out: 550, in: 800, circle: 1000, dot: 160, label: 200, hold: 200, line: 850, lineHold: 250 };
     const COLORS = { res: '#ff5d6c', sup: '#20c997' };
     const NAMES  = { res: 'Resistance', sup: 'Support' };
 
-    // FVG config
-    const FVG_MAX              = 4;    // max number of FVG zones to draw
-    const FVG_MIN_DISPLACEMENT = 1.2;  // min body of displacement candle (candle 2)
-    const FVG_MIN_GAP          = 0.25; // min gap size in price units
+    // Market Structure + Liquidity config (SMC / ICT)
+    const MS_MAX        = 4;     // max BOS/CHoCH events to draw
+    const SWING_K       = 3;     // swing detection window (bars on each side)
+    const LIQ_MAX       = 3;     // max EQH/EQL pairs to draw
+    const LIQ_TOLERANCE = 1.0;   // price tolerance for "equal" highs/lows
 
     const container = document.getElementById('chartContainer');
     if (!container) return;
@@ -1665,80 +1667,133 @@
         }
       });
 
-      // FVG Rectangle tool — animated draw (expands left→right like S/R circle), NO glow
+      // Market Structure line (BOS / CHoCH) — horizontal line at a broken swing level,
+      // animated draw expanding left→right, label "BOS" or "CHoCH". CHoCH = dashed.
       c.addDrawingTool({
-        id: 'fvgRect',
-        label: 'FVG',
-        icon: '\u25AD',
+        id: 'msLine',
+        label: 'MS Line',
+        icon: '\u2014',
         onDraw: function (ctx, d, helpers) {
-          const x1 = helpers.indexToX(d.idx);
-          // End x: broken gaps stop at the break candle; active gaps extend to the right edge.
-          let x2full;
-          if (d.invalidated && d.endIdx != null && d.endIdx >= 0) {
-            x2full = helpers.indexToX(d.endIdx);
-          } else {
-            x2full = helpers.chartRight + 30;
-          }
-          const yTop = helpers.priceToY(d.top);
-          const yBot = helpers.priceToY(d.bottom);
+          const x1 = helpers.indexToX(d.fromIdx);
+          const x2full = helpers.indexToX(d.breakIdx);
+          const y = helpers.priceToY(d.price);
           const col = d.color;
-          // progress animates the rectangle width from 0 → 1 (expanding left to right)
           const p = (d.progress != null) ? d.progress : 1;
           const x2 = x1 + (x2full - x1) * p;
-          const w = x2 - x1;
-          const h = yBot - yTop;
-          if (w <= 0 || h <= 0) return;
+          if (x2 - x1 <= 0) return;
 
           ctx.save();
-          // Semi-transparent fill (dimmer if invalidated)
-          ctx.fillStyle = hexToRgba(col, d.invalidated ? 0.07 : 0.13);
-          ctx.fillRect(x1, yTop, w, h);
-          // Border — solid for active, dashed for invalidated
           ctx.strokeStyle = col;
-          ctx.lineWidth = 1.4;
-          if (d.invalidated) ctx.setLineDash([5, 3]);
-          ctx.strokeRect(x1, yTop, w, h);
+          ctx.lineWidth = 1.8;
+          if (d.msLabel === 'CHoCH') ctx.setLineDash([6, 3]);
+          ctx.beginPath();
+          ctx.moveTo(x1, y);
+          ctx.lineTo(x2, y);
+          ctx.stroke();
           ctx.setLineDash([]);
-          // Leading edge line while drawing (white vertical line at the expansion front)
+          // Leading edge tick while drawing
           if (p < 1) {
             ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 1.5;
-            ctx.globalAlpha = 0.85;
+            ctx.lineWidth = 1.2;
+            ctx.globalAlpha = 0.8;
             ctx.beginPath();
-            ctx.moveTo(x2, yTop);
-            ctx.lineTo(x2, yBot);
+            ctx.moveTo(x2, y - 6);
+            ctx.lineTo(x2, y + 6);
             ctx.stroke();
             ctx.globalAlpha = 1;
           }
-          // Label — only show after the rectangle is mostly drawn (>60%)
+          // Label pill at the leading edge
           if (d.label > 0 && p > 0.6) {
             ctx.globalAlpha = d.label;
             ctx.font = '700 10px -apple-system, "Segoe UI", Roboto, sans-serif';
-            const fillTxt = d.fillPct > 0 ? ' \u00B7 ' + Math.round(d.fillPct * 100) + '% filled' : '';
-            const statusTxt = d.invalidated ? ' \u00B7 broken' : '';
-            const txt = (d.fvgType === 'bull' ? 'Bullish FVG' : 'Bearish FVG') + fillTxt + statusTxt;
-            ctx.textAlign = 'left';
-            ctx.textBaseline = 'top';
+            const txt = d.msLabel;
             const tw = ctx.measureText(txt).width + 10;
-            ctx.fillStyle = hexToRgba(col, 0.92);
+            ctx.fillStyle = col;
             if (ctx.roundRect) {
               ctx.beginPath();
-              ctx.roundRect(x1 + 3, yTop + 3, tw, 14, 4);
+              ctx.roundRect(x2 - tw - 2, y - 8, tw, 15, 4);
               ctx.fill();
             } else {
-              ctx.fillRect(x1 + 3, yTop + 3, tw, 14);
+              ctx.fillRect(x2 - tw - 2, y - 8, tw, 15);
             }
             ctx.fillStyle = '#ffffff';
-            ctx.fillText(txt, x1 + 8, yTop + 5);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(txt, x2 - tw / 2 - 2, y - 0.5);
           }
           ctx.restore();
         },
         onHitTest: function (d, x, y, helpers) {
-          const x1 = helpers.indexToX(d.idx);
-          if (x < x1 || x > helpers.chartRight + 30) return false;
-          const yT = helpers.priceToY(d.top);
-          const yB = helpers.priceToY(d.bottom);
-          return y >= Math.min(yT, yB) && y <= Math.max(yT, yB);
+          const x1 = helpers.indexToX(d.fromIdx);
+          const x2 = helpers.indexToX(d.breakIdx);
+          const ly = helpers.priceToY(d.price);
+          return x >= x1 && x <= x2 && Math.abs(y - ly) < 5;
+        }
+      });
+
+      // Liquidity line (EQH / EQL) — dashed horizontal connecting equal highs/lows,
+      // animated draw expanding left→right, label "EQH" or "EQL".
+      c.addDrawingTool({
+        id: 'liqLine',
+        label: 'Liquidity',
+        icon: '\u2261',
+        onDraw: function (ctx, d, helpers) {
+          const x1 = helpers.indexToX(d.idx1);
+          const x2full = helpers.indexToX(d.idx2);
+          const y = helpers.priceToY(d.price);
+          const col = d.color;
+          const p = (d.progress != null) ? d.progress : 1;
+          const x2 = x1 + (x2full - x1) * p;
+          if (x2 - x1 <= 0) return;
+
+          ctx.save();
+          ctx.strokeStyle = col;
+          ctx.lineWidth = 1.3;
+          ctx.setLineDash([4, 3]);
+          ctx.beginPath();
+          ctx.moveTo(x1, y);
+          ctx.lineTo(x2, y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          // End dots
+          if (p > 0.05) {
+            ctx.fillStyle = col;
+            ctx.beginPath();
+            ctx.arc(x1, y, 3, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          if (p >= 0.95) {
+            ctx.fillStyle = col;
+            ctx.beginPath();
+            ctx.arc(x2, y, 3, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          // Label pill to the right of the second point
+          if (d.label > 0 && p > 0.7) {
+            ctx.globalAlpha = d.label;
+            ctx.font = '700 9px -apple-system, "Segoe UI", Roboto, sans-serif';
+            const txt = d.liqType;
+            const tw = ctx.measureText(txt).width + 8;
+            ctx.fillStyle = col;
+            if (ctx.roundRect) {
+              ctx.beginPath();
+              ctx.roundRect(x2 + 4, y - 7, tw, 13, 4);
+              ctx.fill();
+            } else {
+              ctx.fillRect(x2 + 4, y - 7, tw, 13);
+            }
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(txt, x2 + 4 + tw / 2, y - 0.5);
+          }
+          ctx.restore();
+        },
+        onHitTest: function (d, x, y, helpers) {
+          const x1 = helpers.indexToX(d.idx1);
+          const x2 = helpers.indexToX(d.idx2);
+          const ly = helpers.priceToY(d.price);
+          return x >= x1 && x <= x2 && Math.abs(y - ly) < 5;
         }
       });
 
@@ -1811,81 +1866,102 @@
       return [];
     }
 
-    /* ---------- FVG (Fair Value Gap) detection ----------
-       Bullish FVG: High[candle1] < Low[candle3] → gap between them
-       Bearish FVG: Low[candle1]  > High[candle3] → gap between them
-       Filters by displacement (candle 2 body size) and minimum gap size.
-       Keeps the most significant FVGs (largest gap) across the whole chart,
-       so some may be in the older part — visible when scrolled to first candles. */
-    function findFVGs(c) {
+    /* ---------- Market Structure detection (BOS / CHoCH) ----------
+       Finds swing highs/lows, then detects when a later candle closes beyond
+       a previous swing. BOS = trend continuation; CHoCH = trend reversal.
+       Returns the most recent events with {fromIdx, breakIdx, price, direction, msLabel}. */
+    function findMarketStructure(c) {
       const cs = c.sim.candles, N = cs.length;
-      const fvgs = [];
-      for (let i = 0; i < N - 2; i++) {
-        const c1 = cs[i], c2 = cs[i + 1], c3 = cs[i + 2];
-        const displacement = Math.abs(c2.close - c2.open);
-        if (displacement < FVG_MIN_DISPLACEMENT) continue;
-
-        // Bullish FVG: gap up between candle 1 high and candle 3 low
-        if (c1.high < c3.low) {
-          const gapSize = c3.low - c1.high;
-          if (gapSize >= FVG_MIN_GAP) {
-            fvgs.push({ idx: i, type: 'bull', top: c3.low, bottom: c1.high, gapSize });
-          }
+      const swings = [];
+      for (let i = SWING_K; i < N - SWING_K; i++) {
+        let isH = true, isL = true;
+        for (let j = 1; j <= SWING_K; j++) {
+          if (cs[i].high <= cs[i - j].high || cs[i].high <= cs[i + j].high) isH = false;
+          if (cs[i].low  >= cs[i - j].low  || cs[i].low  >= cs[i + j].low)  isL = false;
         }
-        // Bearish FVG: gap down between candle 3 high and candle 1 low
-        if (c1.low > c3.high) {
-          const gapSize = c1.low - c3.high;
-          if (gapSize >= FVG_MIN_GAP) {
-            fvgs.push({ idx: i, type: 'bear', top: c1.low, bottom: c3.high, gapSize });
+        if (isH) swings.push({ idx: i, price: cs[i].high, type: 'high' });
+        if (isL) swings.push({ idx: i, price: cs[i].low,  type: 'low'  });
+      }
+      const events = [];
+      let trend = 0;            // 1 = up, -1 = down, 0 = unknown
+      let lastHigh = null, lastLow = null;
+      for (let s = 0; s < swings.length; s++) {
+        const sw = swings[s];
+        if (sw.type === 'high') {
+          if (lastHigh && sw.price > lastHigh.price) {
+            // Find the candle that first closed above lastHigh.price
+            let bIdx = -1;
+            for (let j = lastHigh.idx + 1; j <= sw.idx; j++) {
+              if (cs[j].close > lastHigh.price) { bIdx = j; break; }
+            }
+            if (bIdx >= 0) {
+              events.push({
+                direction: 'bullish',
+                msLabel: trend === -1 ? 'CHoCH' : 'BOS',
+                price: lastHigh.price, fromIdx: lastHigh.idx, breakIdx: bIdx
+              });
+              trend = 1;
+            }
           }
+          lastHigh = sw;
+        } else {
+          if (lastLow && sw.price < lastLow.price) {
+            let bIdx = -1;
+            for (let j = lastLow.idx + 1; j <= sw.idx; j++) {
+              if (cs[j].close < lastLow.price) { bIdx = j; break; }
+            }
+            if (bIdx >= 0) {
+              events.push({
+                direction: 'bearish',
+                msLabel: trend === 1 ? 'CHoCH' : 'BOS',
+                price: lastLow.price, fromIdx: lastLow.idx, breakIdx: bIdx
+              });
+              trend = -1;
+            }
+          }
+          lastLow = sw;
         }
       }
-      // Sort by gap size (most significant first), keep top FVG_MAX,
-      // then re-sort chronologically for drawing order.
-      fvgs.sort(function (a, b) { return b.gapSize - a.gapSize; });
-      const kept = fvgs.slice(0, FVG_MAX);
-      kept.sort(function (a, b) { return a.idx - b.idx; });
-      return kept;
+      return events.slice(-MS_MAX);
     }
 
-    /* ---------- Check FVG fill status ----------
-       Returns how much of the gap has been filled by later price action,
-       whether the gap has been invalidated (price closed beyond it),
-       and breakIdx — the candle index where the gap was first broken.
-       For broken gaps, the rectangle stops at breakIdx (where it died). */
-    function checkFVGFill(c, fvg) {
+    /* ---------- Liquidity detection (EQH / EQL) ----------
+       Finds pairs of swing highs (or lows) whose prices are within LIQ_TOLERANCE.
+       EQH = Equal Highs (sell-side liquidity above), EQL = Equal Lows (buy-side below).
+       Returns the most recent pairs. */
+    function findLiquidity(c) {
       const cs = c.sim.candles, N = cs.length;
-      let maxFill = 0;
-      let invalidated = false;
-      let entered = false;
-      let breakIdx = -1;
-      for (let i = fvg.idx + 3; i < N; i++) {
-        // Did price enter the gap zone?
-        if (cs[i].low <= fvg.top && cs[i].high >= fvg.bottom) {
-          entered = true;
-          const fillTop = Math.min(cs[i].high, fvg.top);
-          const fillBot = Math.max(cs[i].low, fvg.bottom);
-          const fillPct = (fillTop - fillBot) / (fvg.top - fvg.bottom);
-          if (fillPct > maxFill) maxFill = fillPct;
+      const highs = [], lows = [];
+      for (let i = SWING_K; i < N - SWING_K; i++) {
+        let isH = true, isL = true;
+        for (let j = 1; j <= SWING_K; j++) {
+          if (cs[i].high <= cs[i - j].high || cs[i].high <= cs[i + j].high) isH = false;
+          if (cs[i].low  >= cs[i - j].low  || cs[i].low  >= cs[i + j].low)  isL = false;
         }
-        // Invalidation: price closed beyond the gap on the wrong side.
-        // Record the FIRST candle where this happens — that's where the gap died.
-        if (!invalidated) {
-          if (fvg.type === 'bull' && cs[i].close < fvg.bottom) { invalidated = true; breakIdx = i; }
-          if (fvg.type === 'bear' && cs[i].close > fvg.top)    { invalidated = true; breakIdx = i; }
+        if (isH) highs.push({ idx: i, price: cs[i].high });
+        if (isL) lows.push({ idx: i, price: cs[i].low });
+      }
+      const events = [];
+      // Equal highs
+      for (let i = 0; i < highs.length; i++) {
+        for (let j = i + 1; j < highs.length; j++) {
+          if (Math.abs(highs[i].price - highs[j].price) <= LIQ_TOLERANCE) {
+            events.push({ liqType: 'EQH', price: (highs[i].price + highs[j].price) / 2, idx1: highs[i].idx, idx2: highs[j].idx });
+            break;
+          }
         }
       }
-      return { filled: maxFill, invalidated, entered, breakIdx };
-    }
-
-    /* ---------- FVG color logic ----------
-       Active / respected gap → its type color (bull=green, bear=red)
-       Broken gap → opposite color (bull broken=red, bear broken=green) */
-    function fvgColor(fvg, status) {
-      if (status.invalidated) {
-        return fvg.type === 'bull' ? '#ff5d6c' : '#20c997';
+      // Equal lows
+      for (let i = 0; i < lows.length; i++) {
+        for (let j = i + 1; j < lows.length; j++) {
+          if (Math.abs(lows[i].price - lows[j].price) <= LIQ_TOLERANCE) {
+            events.push({ liqType: 'EQL', price: (lows[i].price + lows[j].price) / 2, idx1: lows[i].idx, idx2: lows[j].idx });
+            break;
+          }
+        }
       }
-      return fvg.type === 'bull' ? '#20c997' : '#ff5d6c';
+      events.sort(function (a, b) { return a.idx2 - b.idx2; });
+      return events.slice(-LIQ_MAX);
     }
 
     /* ---------- public API ---------- */
@@ -1966,66 +2042,88 @@
         await wait(T.hold, my);
       }
 
-      // ====== Phase 2: FVG zones — zoom in on each, draw rectangle (same style as S/R) ======
+      // ====== Phase 2: Market Structure (BOS / CHoCH) — zoom in, draw line + pan ======
       if (!alive()) return 'aborted';
-      const fvgs = findFVGs(c);
+      const msEvents = findMarketStructure(c);
       const N = c.sim.candles.length;
-      for (const fvg of fvgs) {
+      for (const ev of msEvents) {
         if (!alive()) return 'aborted';
-        const status = checkFVGFill(c, fvg);
-        const col = fvgColor(fvg, status);
-        // Where does the rectangle end?
-        // Broken gaps stop at the break candle; active gaps extend to the last candle.
-        const endIdx = status.invalidated ? status.breakIdx : (N - 1);
-
-        // 1) zoom out slightly (same "step back" as S/R)
+        const col = ev.direction === 'bullish' ? '#20c997' : '#ff5d6c';
         const ov = overviewCamera(c);
         await cameraTo(ov.bs, ov.ro, T.out, my);
         if (!alive()) return 'aborted';
-        // 2) zoom in on the FVG formation (center on the middle candle of the 3-candle pattern)
-        const f = focusCamera(c, fvg.idx + 1);
+        const f = focusCamera(c, ev.fromIdx);
         await cameraTo(f.bs, f.ro, T.in, my);
         if (!alive()) return 'aborted';
-        // 2.5) brief settle pause — let the user see the FVG area before drawing starts
-        await wait(400, my);
+        await wait(400, my);                         // settle pause
         if (!alive()) return 'aborted';
-        // 3) draw the rectangle progressively AND pan the chart to follow the leading edge.
-        // The pan starts exactly where the zoom-in ended (fvg.idx + 1) so there is no jump —
-        // the view then scrolls smoothly to the right as the rectangle extends to endIdx.
         const m = {
-          type: 'fvgRect',
-          idx: fvg.idx,
-          endIdx: endIdx,
-          top: fvg.top,
-          bottom: fvg.bottom,
-          fvgType: fvg.type,
+          type: 'msLine',
+          fromIdx: ev.fromIdx,
+          breakIdx: ev.breakIdx,
+          price: ev.price,
+          msLabel: ev.msLabel,
           color: col,
-          fillPct: status.filled,
-          invalidated: status.invalidated,
           progress: 0,
           label: 0
         };
         c.addDrawing(m);
-        // Keep the zoom level fixed; only pan rightOffset so the leading edge stays in view.
         const focusBs = c.barSpacing;
         const xc = (c.chartLeft + c.chartRight) / 2;
-        // Start the pan from fvg.idx + 1 (the zoom-in target) so the transition is seamless.
-        const panStartIdx = fvg.idx + 1;
-        await tween(T.fvg, function (t) {
+        const panStart = ev.fromIdx, panEnd = ev.breakIdx;
+        await tween(T.line, function (t) {
           const e = ease(t);
           m.progress = e;
-          // Leading edge moves smoothly from the formation center to endIdx
-          const leadIdx = panStartIdx + (endIdx - panStartIdx) * e;
-          // Pan so the leading edge is centered — use float (no rounding) for smooth motion
+          const leadIdx = panStart + (panEnd - panStart) * e;
           c.barSpacing = focusBs;
           c.rightOffset = (c.chartRight - xc) / focusBs - (N - 1 - leadIdx);
           applyCamera(c);
         }, my);
         await tween(T.label, (t) => { m.label = ease(t); }, my);
-        await wait(T.fvgHold, my);
+        await wait(T.lineHold, my);
       }
 
-      // ====== Phase 3: return to the recent candles (user's original view) ======
+      // ====== Phase 3: Liquidity (EQH / EQL) — zoom in, draw dashed line + pan ======
+      if (!alive()) return 'aborted';
+      const liqEvents = findLiquidity(c);
+      for (const ev of liqEvents) {
+        if (!alive()) return 'aborted';
+        const col = ev.liqType === 'EQH' ? '#f59e0b' : '#4c8dff';
+        const ov = overviewCamera(c);
+        await cameraTo(ov.bs, ov.ro, T.out, my);
+        if (!alive()) return 'aborted';
+        const f = focusCamera(c, ev.idx1);
+        await cameraTo(f.bs, f.ro, T.in, my);
+        if (!alive()) return 'aborted';
+        await wait(400, my);
+        if (!alive()) return 'aborted';
+        const m = {
+          type: 'liqLine',
+          idx1: ev.idx1,
+          idx2: ev.idx2,
+          price: ev.price,
+          liqType: ev.liqType,
+          color: col,
+          progress: 0,
+          label: 0
+        };
+        c.addDrawing(m);
+        const focusBs = c.barSpacing;
+        const xc = (c.chartLeft + c.chartRight) / 2;
+        const panStart = ev.idx1, panEnd = ev.idx2;
+        await tween(T.line, function (t) {
+          const e = ease(t);
+          m.progress = e;
+          const leadIdx = panStart + (panEnd - panStart) * e;
+          c.barSpacing = focusBs;
+          c.rightOffset = (c.chartRight - xc) / focusBs - (N - 1 - leadIdx);
+          applyCamera(c);
+        }, my);
+        await tween(T.label, (t) => { m.label = ease(t); }, my);
+        await wait(T.lineHold, my);
+      }
+
+      // ====== Phase 4: return to the recent candles (user's original view) ======
       if (!alive()) return 'aborted';
       await cameraTo(start.bs, start.ro, 1300, my);
       if (!alive()) return 'aborted';
@@ -2052,7 +2150,40 @@
   const chartLoading = document.getElementById('chartLoading');
   let currentTF = { label: 'M15', ms: 900000 };
 
-  // Generate realistic XAUUSD candle data
+  // ====== TwelveData API — real XAU/USD gold candles ======
+  const API_KEY = 'abb4cd468af247aeb64ca3488870283f';
+  const TF_TO_API = { M1: '1min', M5: '5min', M15: '15min', H1: '1h', H4: '4h' };
+
+  async function fetchGoldCandles(tfLabel, outputsize) {
+    const interval = TF_TO_API[tfLabel] || '15min';
+    const url = 'https://api.twelvedata.com/time_series?symbol=XAU/USD&interval=' +
+                interval + '&outputsize=' + outputsize + '&apikey=' + API_KEY;
+    try {
+      const response = await fetch(url);
+      const data = await response.json();
+      if (data.status === 'error' || !data.values) {
+        console.error('TwelveData API error:', data.message || data);
+        return null;
+      }
+      // API returns newest-first; reverse to chronological (oldest-first)
+      const candles = data.values.map(function (c) {
+        return {
+          time: Math.floor(new Date(c.datetime).getTime() / 1000),
+          open: Number(c.open),
+          high: Number(c.high),
+          low: Number(c.low),
+          close: Number(c.close),
+          volume: 0
+        };
+      }).reverse();
+      return candles;
+    } catch (e) {
+      console.error('Fetch error:', e);
+      return null;
+    }
+  }
+
+  // Fallback: generate realistic XAUUSD candle data (used if API fails)
   function generateXAUCandles(count, timeframeMs) {
     const candles = [];
     const now = Math.floor(Date.now() / 1000);
@@ -2101,7 +2232,7 @@
     forceChartRedraw(c);
   }
 
-  function initBadiChart() {
+  async function initBadiChart() {
     const canvas = document.getElementById('bgChartCanvas');
     if (!canvas) return;
 
@@ -2157,8 +2288,14 @@
       // Start the chart
       window.bgChart.start();
 
-      // Generate and load XAUUSD data
-      const candles = generateXAUCandles(200, currentTF.ms);
+      // Try fetching live XAU/USD data from TwelveData API.
+      // Falls back to generated data if the API fails (network / rate limit).
+      chartLoading.innerHTML = '<div class="spinner"></div><span>Fetching live XAU/USD data...</span>';
+      let candles = await fetchGoldCandles(currentTF.label, 300);
+      if (!candles || candles.length < 20) {
+        candles = generateXAUCandles(200, currentTF.ms);
+      }
+      window.bgCandles = candles;
       window.bgChart.setData(candles);
 
       // Add indicators
@@ -2204,22 +2341,33 @@
     bootChart();
   }
 
-  // Timeframe buttons
+  // Timeframe buttons — fetch live data from API, fall back to generated
   document.querySelectorAll('.tf-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       document.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       const tf = btn.dataset.tf;
       const ms = parseInt(btn.dataset.ms, 10);
       currentTF = { label: tf, ms: ms };
-      // Update chart timeframe and regenerate data
       if (window.bgChart) {
         try {
           window.bgChart.setTimeframe({ label: tf, ms: ms });
-          const candles = generateXAUCandles(200, ms);
-          window.bgChart.setData(candles);
           if (typeof window.clearAnalysisMarks === 'function') window.clearAnalysisMarks();
-        } catch (e) { console.error('TF change error:', e); }
+          // Show loading while fetching
+          chartLoading.classList.remove('hidden', 'error');
+          chartLoading.innerHTML = '<div class="spinner"></div><span>Fetching ' + tf + ' data...</span>';
+          let candles = await fetchGoldCandles(tf, 300);
+          if (!candles || candles.length < 20) {
+            candles = generateXAUCandles(200, ms);
+          }
+          window.bgCandles = candles;
+          window.bgChart.setData(candles);
+          chartLoading.classList.add('hidden');
+          setTimeout(resizeChart, 100);
+        } catch (e) {
+          console.error('TF change error:', e);
+          chartLoading.classList.add('hidden');
+        }
       }
     });
   });
