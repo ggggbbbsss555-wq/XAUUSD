@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="ar" dir="ltr" data-theme="dark">
 <head>
@@ -1545,12 +1544,12 @@
      All drawings are native library drawings (no overlay, no glow).
      ============================================================ */
   (function () {
-    const LEVELS_PER_SIDE = 3;     // 3 resistances + 3 supports = 6 levels (more S/R)
-    const PIVOT_K         = 6;     // bars on each side that must be lower/higher
+    const LEVELS_PER_SIDE = 4;     // 4 resistances + 4 supports = 8 levels (more S/R)
+    const PIVOT_K         = 5;     // swing detection window — balanced confirmation + recency
     const ZOOM_IN_SPACING = 26;    // barSpacing when focusing on a level
     const ZOOM_OUT_FACTOR = 0.6;   // slight zoom out (60% of current spacing)
     const BANNER_MS       = 6000;  // banner auto-hide after 6 seconds
-    const T = { out: 550, in: 800, circle: 1000, dot: 160, label: 200, hold: 200, line: 850, lineHold: 250 };
+    const T = { out: 500, in: 700, circle: 850, dot: 130, label: 180, hold: 150, line: 750, lineHold: 200, vp: 700, signal: 500 };
     const COLORS = { res: '#ff5d6c', sup: '#20c997' };
     const NAMES  = { res: 'Resistance', sup: 'Support' };
 
@@ -1612,9 +1611,8 @@
             // No shadowBlur / shadowColor — flat, non-glowing stroke
             const a0 = -Math.PI / 2;
             const a1 = a0 + Math.PI * 2 * d.progress;
-            const wobble = Math.sin(performance.now() / 130) * 0.5;
             ctx.beginPath();
-            ctx.arc(x, y, R + wobble, a0, a1);
+            ctx.arc(x, y, R, a0, a1);
             ctx.stroke();
             // Leading tip dot while drawing
             if (d.progress < 1) {
@@ -1797,6 +1795,218 @@
         }
       });
 
+      // Volume Profile tool — two-color histogram (green=up, red=down), bars extend RIGHT,
+      // drawn on RECENT candles. Includes POC line and Value Area. Persistent drawing tool.
+      c.addDrawingTool({
+        id: 'volProfile',
+        label: 'Volume Profile',
+        icon: 'VP',
+        onDraw: function (ctx, d, helpers) {
+          const chart = window.bgChart;
+          if (!chart) return;
+          const cs = chart.sim.candles;
+          const from = d.fromIdx, to = Math.min(d.toIdx, cs.length - 1);
+          if (from >= cs.length || from > to) return;
+          let minP = Infinity, maxP = -Infinity;
+          for (let i = from; i <= to; i++) {
+            if (cs[i].low < minP) minP = cs[i].low;
+            if (cs[i].high > maxP) maxP = cs[i].high;
+          }
+          const range = Math.max(0.01, maxP - minP);
+          const buckets = 24;
+          const bucketSize = range / buckets;
+          const upC = new Array(buckets).fill(0), dnC = new Array(buckets).fill(0);
+          for (let i = from; i <= to; i++) {
+            const sB = Math.max(0, Math.floor((cs[i].low - minP) / bucketSize));
+            const eB = Math.min(buckets - 1, Math.floor((cs[i].high - minP) / bucketSize));
+            const up = cs[i].close >= cs[i].open;
+            for (let b = sB; b <= eB; b++) { if (up) upC[b]++; else dnC[b]++; }
+          }
+          const totals = upC.map(function (u, i) { return u + dnC[i]; });
+          const maxTotal = Math.max(1, Math.max.apply(null, totals));
+          // POC = bucket with highest total
+          let pocB = 0, pocMax = 0;
+          for (let b = 0; b < buckets; b++) { if (totals[b] > pocMax) { pocMax = totals[b]; pocB = b; } }
+          // Value Area (70% around POC)
+          let vaLo = pocB, vaHi = pocB, vaVol = totals[pocB];
+          const targetVol = totals.reduce(function (a, b) { return a + b; }, 0) * 0.7;
+          while (vaVol < targetVol && (vaLo > 0 || vaHi < buckets - 1)) {
+            if (vaLo > 0 && (vaHi >= buckets - 1 || totals[vaLo - 1] >= totals[vaHi + 1])) { vaLo--; vaVol += totals[vaLo]; }
+            else if (vaHi < buckets - 1) { vaHi++; vaVol += totals[vaHi]; }
+          }
+          const p = d.progress != null ? d.progress : 1;
+          const barMaxW = 68;
+          const xStart = helpers.chartLeft + 4;               // bars start from left edge, always visible
+          const upCol = '#20c997', dnCol = '#ff5d6c';
+
+          ctx.save();
+          // Value Area subtle background
+          const vaY1 = helpers.priceToY(minP + (vaHi + 1) * bucketSize);
+          const vaY2 = helpers.priceToY(minP + vaLo * bucketSize);
+          ctx.fillStyle = 'rgba(255,255,255,0.05)';
+          ctx.fillRect(xStart - 2, Math.min(vaY1, vaY2), barMaxW + 8, Math.abs(vaY2 - vaY1));
+
+          // Bars (two-color, extending RIGHT)
+          for (let b = 0; b < buckets; b++) {
+            const uW = (upC[b] / maxTotal) * barMaxW * p;
+            const dW = (dnC[b] / maxTotal) * barMaxW * p;
+            if (uW + dW === 0) continue;
+            const pLo = minP + b * bucketSize, pHi = pLo + bucketSize;
+            const yLo = helpers.priceToY(pLo), yHi = helpers.priceToY(pHi);
+            const yT = Math.min(yLo, yHi), yB = Math.max(yLo, yHi);
+            const bH = Math.max(0.5, yB - yT - 0.5);
+            if (uW > 0) { ctx.fillStyle = hexToRgba(upCol, 0.40); ctx.fillRect(xStart, yT, uW, bH); }
+            if (dW > 0) { ctx.fillStyle = hexToRgba(dnCol, 0.40); ctx.fillRect(xStart + uW, yT, dW, bH); }
+            ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 0.3;
+            ctx.strokeRect(xStart, yT, uW + dW, bH);
+          }
+          // POC line (gold dashed)
+          const pocPrice = minP + (pocB + 0.5) * bucketSize;
+          const pocY = helpers.priceToY(pocPrice);
+          ctx.strokeStyle = '#FFD700'; ctx.lineWidth = 1; ctx.setLineDash([4, 2]);
+          ctx.beginPath(); ctx.moveTo(xStart - 4, pocY); ctx.lineTo(xStart + barMaxW + 6, pocY); ctx.stroke();
+          ctx.setLineDash([]);
+          // Labels
+          if (d.label > 0 && p > 0.6) {
+            ctx.globalAlpha = d.label;
+            ctx.font = '700 9px -apple-system, "Segoe UI", Roboto, sans-serif';
+            ctx.fillStyle = upCol; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+            ctx.fillText('VP', xStart + 2, helpers.priceToY(maxP) - 10);
+            ctx.fillStyle = '#FFD700'; ctx.textAlign = 'right';
+            ctx.fillText('POC ' + pocPrice.toFixed(1), xStart + barMaxW + 4, pocY + 4);
+          }
+          ctx.restore();
+        },
+        onHitTest: function (d, x, y, helpers) {
+          const xs = helpers.indexToX(d.toIdx || d.fromIdx);
+          return x >= xs && x <= xs + 75;
+        }
+      });
+
+      // Trade Signal tool — position box like TradingView: filled SL zone (red),
+      // filled TP zone (green), entry/SL/TP lines, R:R label. No arrow.
+      c.addDrawingTool({
+        id: 'tradeSignal',
+        label: 'Trade Signal',
+        icon: '\u25B6',
+        onDraw: function (ctx, d, helpers) {
+          const x1 = helpers.indexToX(d.idx);
+          const x2full = helpers.chartRight + 10;
+          const p = d.progress != null ? d.progress : 1;
+          const x2 = x1 + (x2full - x1) * p;
+          const isBuy = d.direction === 'buy';
+          const yE = helpers.priceToY(d.entry);
+          const ySL = helpers.priceToY(d.stopLoss);
+          const yTP1 = helpers.priceToY(d.tp1);
+
+          ctx.save();
+          // Stop Loss zone (red fill between entry and SL)
+          ctx.fillStyle = hexToRgba('#ff5d6c', 0.14);
+          ctx.fillRect(x1, Math.min(yE, ySL), x2 - x1, Math.abs(ySL - yE));
+          // Take Profit zone (green fill between entry and TP1)
+          ctx.fillStyle = hexToRgba('#20c997', 0.14);
+          ctx.fillRect(x1, Math.min(yE, yTP1), x2 - x1, Math.abs(yTP1 - yE));
+          // Entry line (blue solid)
+          ctx.strokeStyle = '#4c8dff'; ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.moveTo(x1, yE); ctx.lineTo(x2, yE); ctx.stroke();
+          // SL line (red dashed)
+          ctx.strokeStyle = '#ff5d6c'; ctx.lineWidth = 1.3; ctx.setLineDash([5, 3]);
+          ctx.beginPath(); ctx.moveTo(x1, ySL); ctx.lineTo(x2, ySL); ctx.stroke();
+          // TP lines (green dashed)
+          ctx.strokeStyle = '#20c997'; ctx.lineWidth = 1.1; ctx.setLineDash([3, 2]);
+          for (const tp of [d.tp1, d.tp2, d.tp3]) {
+            const yTP = helpers.priceToY(tp);
+            ctx.beginPath(); ctx.moveTo(x1, yTP); ctx.lineTo(x2, yTP); ctx.stroke();
+          }
+          ctx.setLineDash([]);
+          // Labels
+          if (d.label > 0 && p > 0.65) {
+            ctx.globalAlpha = d.label;
+            const risk = Math.abs(d.entry - d.stopLoss);
+            const reward = Math.abs(d.tp1 - d.entry);
+            const rr = risk > 0 ? reward / risk : 0;
+            // Direction + R:R label box at entry
+            ctx.font = '700 11px -apple-system, "Segoe UI", Roboto, sans-serif';
+            const dirTxt = (isBuy ? 'BUY' : 'SELL') + '  \u00B7  R:R 1:' + rr.toFixed(1);
+            const tw = ctx.measureText(dirTxt).width + 14;
+            ctx.fillStyle = isBuy ? '#20c997' : '#ff5d6c';
+            if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(x1 + 4, yE - 10, tw, 20, 4); ctx.fill(); }
+            else ctx.fillRect(x1 + 4, yE - 10, tw, 20);
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+            ctx.fillText(dirTxt, x1 + 11, yE);
+            // Price labels on right edge
+            ctx.font = '700 9px -apple-system, "Segoe UI", Roboto, sans-serif';
+            ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+            const lx = x2 - 3;
+            const lbl = function (y, txt, col) {
+              const tw2 = ctx.measureText(txt).width + 8;
+              ctx.fillStyle = col;
+              if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(lx - tw2, y - 7, tw2, 14, 3); ctx.fill(); }
+              else ctx.fillRect(lx - tw2, y - 7, tw2, 14);
+              ctx.fillStyle = '#ffffff'; ctx.fillText(txt, lx - 4, y);
+            };
+            lbl(yE, 'Entry ' + d.entry.toFixed(2), '#4c8dff');
+            lbl(ySL, 'SL ' + d.stopLoss.toFixed(2), '#ff5d6c');
+            lbl(helpers.priceToY(d.tp1), 'TP1 ' + d.tp1.toFixed(2), '#20c997');
+            lbl(helpers.priceToY(d.tp2), 'TP2 ' + d.tp2.toFixed(2), '#20c997');
+            lbl(helpers.priceToY(d.tp3), 'TP3 ' + d.tp3.toFixed(2), '#20c997');
+          }
+          ctx.restore();
+        },
+        onHitTest: function (d, x, y, helpers) {
+          const x1 = helpers.indexToX(d.idx);
+          return x >= x1 && x <= helpers.chartRight + 10;
+        }
+      });
+
+      // S/R Connector tool — dashed zigzag line connecting S/R points chronologically
+      c.addDrawingTool({
+        id: 'srConnector',
+        label: 'SR Connector',
+        icon: '\u2197',
+        onDraw: function (ctx, d, helpers) {
+          if (!d.points || d.points.length < 2) return;
+          const col = d.color || '#4c8dff';
+          const p = d.progress != null ? d.progress : 1;
+          const totalSegs = d.points.length - 1;
+          const segsFloat = p * totalSegs;
+
+          ctx.save();
+          ctx.strokeStyle = col;
+          ctx.lineWidth = 1.3;
+          ctx.setLineDash([5, 3]);
+          ctx.beginPath();
+          const f = d.points[0];
+          ctx.moveTo(helpers.indexToX(f.idx), helpers.priceToY(f.price));
+          for (let i = 1; i < d.points.length; i++) {
+            const frac = Math.min(1, Math.max(0, segsFloat - (i - 1)));
+            if (frac <= 0) break;
+            const prev = d.points[i - 1];
+            const curr = d.points[i];
+            const px = helpers.indexToX(prev.idx), py = helpers.priceToY(prev.price);
+            const cx = helpers.indexToX(curr.idx), cy = helpers.priceToY(curr.price);
+            if (frac >= 1) ctx.lineTo(cx, cy);
+            else { ctx.lineTo(px + (cx - px) * frac, py + (cy - py) * frac); break; }
+          }
+          ctx.stroke();
+          ctx.setLineDash([]);
+          // Dots at each point
+          if (p > 0.05) {
+            ctx.fillStyle = col;
+            const visCount = Math.ceil(p * d.points.length);
+            for (let i = 0; i < Math.min(visCount, d.points.length); i++) {
+              const pt = d.points[i];
+              ctx.beginPath();
+              ctx.arc(helpers.indexToX(pt.idx), helpers.priceToY(pt.price), 2.5, 0, Math.PI * 2);
+              ctx.fill();
+            }
+          }
+          ctx.restore();
+        },
+        onHitTest: function () { return false; }
+      });
+
       toolRegistered = true;
     }
 
@@ -1844,26 +2054,36 @@
     }
 
     /* ---------- S/R detection (good levels, PIVOT_K sliding window) ---------- */
+    /* ---------- S/R detection — keeps only the LARGEST (most prominent) swings ----------
+       Each swing gets a `strength` = how far it stands out from the opposite side
+       in its window. We keep only the strongest LEVELS_PER_SIDE of each type. */
     function findLevels(c) {
       const cs = c.sim.candles, N = cs.length;
-      for (let k = PIVOT_K; k >= 2; k--) {
-        const hi = [], lo = [];
-        for (let i = k; i < N - k; i++) {
-          let isH = true, isL = true;
-          for (let j = i - k; j <= i + k; j++) {
-            if (j === i) continue;
-            if (cs[j].high > cs[i].high) isH = false;
-            if (cs[j].low  < cs[i].low)  isL = false;
-          }
-          if (isH) hi.push({ idx: i, price: cs[i].high, type: 'res' });
-          if (isL) lo.push({ idx: i, price: cs[i].low,  type: 'sup' });
+      const k = PIVOT_K;
+      const hi = [], lo = [];
+      for (let i = k; i < N - k; i++) {
+        let isH = true, isL = true;
+        for (let j = 1; j <= k; j++) {
+          if (cs[i].high <= cs[i - j].high || cs[i].high <= cs[i + j].high) isH = false;
+          if (cs[i].low  >= cs[i - j].low  || cs[i].low  >= cs[i + j].low)  isL = false;
         }
-        if (hi.length >= LEVELS_PER_SIDE && lo.length >= LEVELS_PER_SIDE) {
-          return hi.slice(-LEVELS_PER_SIDE).concat(lo.slice(-LEVELS_PER_SIDE))
-                   .sort((a, b) => b.idx - a.idx);        // newest -> oldest
+        if (isH) {
+          let minL = Infinity;
+          for (let j = i - k; j <= i + k; j++) minL = Math.min(minL, cs[j].low);
+          hi.push({ idx: i, price: cs[i].high, type: 'res', strength: cs[i].high - minL });
+        }
+        if (isL) {
+          let maxH = -Infinity;
+          for (let j = i - k; j <= i + k; j++) maxH = Math.max(maxH, cs[j].high);
+          lo.push({ idx: i, price: cs[i].low, type: 'sup', strength: maxH - cs[i].low });
         }
       }
-      return [];
+      // Keep only the strongest (most prominent) swings — the LARGE S/R levels
+      hi.sort(function (a, b) { return b.strength - a.strength; });
+      lo.sort(function (a, b) { return b.strength - a.strength; });
+      const topHi = hi.slice(0, LEVELS_PER_SIDE);
+      const topLo = lo.slice(0, LEVELS_PER_SIDE);
+      return topHi.concat(topLo).sort(function (a, b) { return b.idx - a.idx; });
     }
 
     /* ---------- Market Structure detection (BOS / CHoCH) ----------
@@ -1964,6 +2184,62 @@
       return events.slice(-LIQ_MAX);
     }
 
+    /* ---------- Volume Profile range — ONE large area around the strongest S/R level ---------- */
+    function findVolProfileRanges(c, levels) {
+      if (!levels || levels.length === 0) return [];
+      const N = c.sim.candles.length;
+      const all = levels.slice().sort(function (a, b) { return (b.strength || 0) - (a.strength || 0); });
+      if (all.length === 0) return [];
+      const strongest = all[0];
+      const half = 60;                                   // large area around the level
+      return [{ fromIdx: Math.max(0, strongest.idx - 30), toIdx: N - 1 }];   // from the important area to the LAST candle
+    }
+
+    /* ---------- Trade setup — direction + Entry + SL + TP1/2/3 ---------- */
+    function calculateTradeSetup(msEvents, levels, candles) {
+      let bull = 0, bear = 0;
+      for (const ev of msEvents) {
+        if (ev.direction === 'bullish') bull++; else bear++;
+      }
+      if (msEvents.length > 0) {
+        const last = msEvents[msEvents.length - 1];
+        if (last.direction === 'bullish') bull += 2; else bear += 2;
+      }
+      if (candles.length > 0) {
+        const lastClose = candles[candles.length - 1].close;
+        const resL = levels.filter(function (l) { return l.type === 'res'; });
+        const supL = levels.filter(function (l) { return l.type === 'sup'; });
+        if (resL.length && lastClose > resL[resL.length - 1].price) bull++;
+        if (supL.length && lastClose < supL[supL.length - 1].price) bear++;
+      }
+      const direction = bull >= bear ? 'buy' : 'sell';
+      const lastClose = candles[candles.length - 1].close;
+      const N = candles.length;
+      const lookback = Math.min(8, N);
+      let rHigh = -Infinity, rLow = Infinity;
+      for (let i = N - lookback; i < N; i++) {
+        if (candles[i].high > rHigh) rHigh = candles[i].high;
+        if (candles[i].low < rLow) rLow = candles[i].low;
+      }
+      // Tight stop: small buffer + capped risk so the SL zone is small
+      const buffer = Math.max(0.3, (rHigh - rLow) * 0.05);
+      const maxRisk = 15;                                    // cap risk at $15 for gold
+      let stopLoss, risk;
+      if (direction === 'buy') {
+        stopLoss = rLow - buffer;
+        risk = Math.max(1, Math.min(lastClose - stopLoss, maxRisk));
+        stopLoss = lastClose - risk;                         // recalculate SL from capped risk
+      } else {
+        stopLoss = rHigh + buffer;
+        risk = Math.max(1, Math.min(stopLoss - lastClose, maxRisk));
+        stopLoss = lastClose + risk;
+      }
+      const tp1 = direction === 'buy' ? lastClose + 2 * risk : lastClose - 2 * risk;
+      const tp2 = direction === 'buy' ? lastClose + 3 * risk : lastClose - 3 * risk;
+      const tp3 = direction === 'buy' ? lastClose + 5 * risk : lastClose - 5 * risk;
+      return { direction: direction, entry: lastClose, stopLoss: stopLoss, tp1: tp1, tp2: tp2, tp3: tp3 };
+    }
+
     /* ---------- public API ---------- */
     window.clearAnalysisMarks = function () {
       token++;
@@ -2030,7 +2306,7 @@
           price: lv.price,
           srType: lv.type,
           color: COLORS[lv.type],
-          radius: 18,
+          radius: 12,
           progress: 0,
           dot: 0,
           label: 0
@@ -2123,7 +2399,63 @@
         await wait(T.lineHold, my);
       }
 
-      // ====== Phase 4: return to the recent candles (user's original view) ======
+      // ====== Phase 4: Volume Profile — on important S/R area to last candle ======
+      if (!alive()) return 'aborted';
+      const vpRanges = findVolProfileRanges(c, levels);
+      for (const vp of vpRanges) {
+        if (!alive()) return 'aborted';
+        // Go directly to the VP area (no zoom-out first — view stays here during drawing)
+        const centerIdx = Math.floor((vp.fromIdx + vp.toIdx) / 2);
+        const f = focusCamera(c, centerIdx);
+        await cameraTo(f.bs, f.ro, T.in, my);
+        if (!alive()) return 'aborted';
+        await wait(300, my);
+        if (!alive()) return 'aborted';
+        const m = {
+          type: 'volProfile',
+          fromIdx: vp.fromIdx,
+          toIdx: vp.toIdx,
+          color: '#4c8dff',
+          progress: 0,
+          label: 0
+        };
+        c.addDrawing(m);
+        await tween(T.vp, (t) => { m.progress = ease(t); }, my);
+        await tween(T.label, (t) => { m.label = ease(t); }, my);
+        await wait(T.lineHold, my);
+      }
+
+      // ====== Phase 5: Trade Signal — Entry + SL + TP1/2/3 on the last candle ======
+      if (!alive()) return 'aborted';
+      const setup = calculateTradeSetup(msEvents, levels, c.sim.candles);
+      const lastIdx = c.sim.candles.length - 1;
+      // Zoom to the last candle
+      const ov = overviewCamera(c);
+      await cameraTo(ov.bs, ov.ro, T.out, my);
+      if (!alive()) return 'aborted';
+      const fLast = focusCamera(c, lastIdx);
+      await cameraTo(fLast.bs, fLast.ro, T.in, my);
+      if (!alive()) return 'aborted';
+      await wait(300, my);
+      if (!alive()) return 'aborted';
+      const sigM = {
+        type: 'tradeSignal',
+        idx: lastIdx,
+        direction: setup.direction,
+        entry: setup.entry,
+        stopLoss: setup.stopLoss,
+        tp1: setup.tp1,
+        tp2: setup.tp2,
+        tp3: setup.tp3,
+        progress: 0,
+        label: 0
+      };
+      c.addDrawing(sigM);
+      await tween(900, (t) => { sigM.progress = ease(t); }, my);
+      await tween(T.label, (t) => { sigM.label = ease(t); }, my);
+      await wait(500, my);
+
+      // ====== Phase 7: return to the recent candles (user's original view) ======
       if (!alive()) return 'aborted';
       await cameraTo(start.bs, start.ro, 1300, my);
       if (!alive()) return 'aborted';
@@ -2330,10 +2662,41 @@
     }
   }
 
+  // ====== Live candle updates — poll API every 12 seconds for new candles ======
+  let liveUpdateTimer = null;
+  function startLiveUpdates() {
+    if (liveUpdateTimer) clearInterval(liveUpdateTimer);
+    liveUpdateTimer = setInterval(async function () {
+      // Don't update while analysis is running or chart is not ready
+      if (!window.bgChart || !window.bgCandles) return;
+      const fab = document.getElementById('analysisFab');
+      if (fab && fab.classList.contains('analyzing')) return;
+      try {
+        const fresh = await fetchGoldCandles(currentTF.label, 50);
+        if (!fresh || fresh.length === 0) return;
+        const lastTime = window.bgCandles[window.bgCandles.length - 1].time;
+        const newOnes = fresh.filter(function (c) { return c.time > lastTime; });
+        if (newOnes.length === 0) return;
+        // Append new candles, keep max 500
+        window.bgCandles = window.bgCandles.concat(newOnes);
+        if (window.bgCandles.length > 500) {
+          window.bgCandles = window.bgCandles.slice(-500);
+        }
+        window.bgChart.setData(window.bgCandles);
+      } catch (e) {
+        // silent — network errors are expected occasionally
+      }
+    }, 12000); // every 12 seconds
+  }
+
   // Initialize chart after DOM is ready AND splash has started (so the chart page has real dimensions)
   function bootChart() {
     // Defer until the chart page is visible (splash auto-hides after 2.6s, but we can start sooner)
-    setTimeout(initBadiChart, 300);
+    setTimeout(function () {
+      initBadiChart().then(function () {
+        startLiveUpdates();  // begin polling for live candles after init
+      });
+    }, 300);
   }
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', bootChart);
