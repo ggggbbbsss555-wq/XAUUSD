@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="ar" dir="ltr" data-theme="dark">
 <head>
@@ -1673,7 +1672,13 @@
         icon: '\u25AD',
         onDraw: function (ctx, d, helpers) {
           const x1 = helpers.indexToX(d.idx);
-          const x2full = helpers.chartRight + 30; // full right edge
+          // End x: broken gaps stop at the break candle; active gaps extend to the right edge.
+          let x2full;
+          if (d.invalidated && d.endIdx != null && d.endIdx >= 0) {
+            x2full = helpers.indexToX(d.endIdx);
+          } else {
+            x2full = helpers.chartRight + 30;
+          }
           const yTop = helpers.priceToY(d.top);
           const yBot = helpers.priceToY(d.bottom);
           const col = d.color;
@@ -1845,12 +1850,15 @@
 
     /* ---------- Check FVG fill status ----------
        Returns how much of the gap has been filled by later price action,
-       and whether the gap has been invalidated (price closed beyond it). */
+       whether the gap has been invalidated (price closed beyond it),
+       and breakIdx — the candle index where the gap was first broken.
+       For broken gaps, the rectangle stops at breakIdx (where it died). */
     function checkFVGFill(c, fvg) {
       const cs = c.sim.candles, N = cs.length;
       let maxFill = 0;
       let invalidated = false;
       let entered = false;
+      let breakIdx = -1;
       for (let i = fvg.idx + 3; i < N; i++) {
         // Did price enter the gap zone?
         if (cs[i].low <= fvg.top && cs[i].high >= fvg.bottom) {
@@ -1860,11 +1868,14 @@
           const fillPct = (fillTop - fillBot) / (fvg.top - fvg.bottom);
           if (fillPct > maxFill) maxFill = fillPct;
         }
-        // Invalidation: price closed beyond the gap on the wrong side
-        if (fvg.type === 'bull' && cs[i].close < fvg.bottom) invalidated = true;
-        if (fvg.type === 'bear' && cs[i].close > fvg.top)    invalidated = true;
+        // Invalidation: price closed beyond the gap on the wrong side.
+        // Record the FIRST candle where this happens — that's where the gap died.
+        if (!invalidated) {
+          if (fvg.type === 'bull' && cs[i].close < fvg.bottom) { invalidated = true; breakIdx = i; }
+          if (fvg.type === 'bear' && cs[i].close > fvg.top)    { invalidated = true; breakIdx = i; }
+        }
       }
-      return { filled: maxFill, invalidated, entered };
+      return { filled: maxFill, invalidated, entered, breakIdx };
     }
 
     /* ---------- FVG color logic ----------
@@ -1958,10 +1969,14 @@
       // ====== Phase 2: FVG zones — zoom in on each, draw rectangle (same style as S/R) ======
       if (!alive()) return 'aborted';
       const fvgs = findFVGs(c);
+      const N = c.sim.candles.length;
       for (const fvg of fvgs) {
         if (!alive()) return 'aborted';
         const status = checkFVGFill(c, fvg);
         const col = fvgColor(fvg, status);
+        // Where does the rectangle end?
+        // Broken gaps stop at the break candle; active gaps extend to the last candle.
+        const endIdx = status.invalidated ? status.breakIdx : (N - 1);
 
         // 1) zoom out slightly (same "step back" as S/R)
         const ov = overviewCamera(c);
@@ -1971,10 +1986,12 @@
         const f = focusCamera(c, fvg.idx + 1);
         await cameraTo(f.bs, f.ro, T.in, my);
         if (!alive()) return 'aborted';
-        // 3) draw the rectangle progressively (expands left→right), then label
+        // 3) draw the rectangle progressively AND pan the chart to follow the leading edge.
+        // The view scrolls along with the drawing tip until the rectangle reaches its end.
         const m = {
           type: 'fvgRect',
           idx: fvg.idx,
+          endIdx: endIdx,
           top: fvg.top,
           bottom: fvg.bottom,
           fvgType: fvg.type,
@@ -1985,7 +2002,19 @@
           label: 0
         };
         c.addDrawing(m);
-        await tween(T.fvg,   (t) => { m.progress = ease(t); }, my);
+        // Keep the zoom level fixed; only pan rightOffset so the leading edge stays in view.
+        const focusBs = c.barSpacing;
+        const xc = (c.chartLeft + c.chartRight) / 2;
+        await tween(T.fvg, function (t) {
+          const e = ease(t);
+          m.progress = e;
+          // Leading edge candle index moves from formation → endIdx
+          const leadIdx = fvg.idx + (endIdx - fvg.idx) * e;
+          // Pan so the leading edge is centered on screen
+          c.barSpacing = focusBs;
+          c.rightOffset = (c.chartRight - xc) / focusBs - (N - 1 - Math.round(leadIdx));
+          applyCamera(c);
+        }, my);
         await tween(T.label, (t) => { m.label = ease(t); }, my);
         await wait(T.fvgHold, my);
       }
